@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { LoadingState, GameState, AppScreen, UserSettings, VocabularyItem, SavedVocabularyItem, SaveData, ChoiceItem, CharacterProfile } from './types';
 import { generateAdventureStep, generateAdventureImage } from './services/geminiService';
@@ -10,7 +8,62 @@ import NotebookView from './components/NotebookView';
 
 const NOTEBOOK_KEY = 'geminiAdventureNotebook';
 const SAVE_GAME_KEY = 'geminiAdventureSave';
+const SAVE_VERSION = '1.0'; // Version for compatibility checking
+const MAX_HISTORY_LENGTH = 50; // Limit history to prevent localStorage overflow
 
+// Helper function to validate save data structure
+const isValidSaveData = (data: any): data is SaveData => {
+    if (!data || typeof data !== 'object') return false;
+    
+    // Check required properties
+    if (!data.userSettings || !data.history || !Array.isArray(data.history) || typeof data.currentStepIndex !== 'number') {
+        return false;
+    }
+    
+    // Validate userSettings
+    const settings = data.userSettings;
+    if (!settings.prompt || !settings.genre || !settings.sourceLanguage || !settings.targetLanguage) {
+        return false;
+    }
+    
+    // Validate history array
+    for (const state of data.history) {
+        if (!state.story || !state.translatedStory || !Array.isArray(state.choices) || !Array.isArray(state.vocabulary)) {
+            return false;
+        }
+    }
+    
+    return true;
+};
+
+// Helper function to sanitize save data
+const sanitizeSaveData = (data: any): SaveData | null => {
+    try {
+        if (!isValidSaveData(data)) return null;
+        
+        // Ensure all required properties exist with defaults
+        const sanitized: SaveData = {
+            userSettings: {
+                ...data.userSettings,
+                generateImages: data.userSettings.generateImages ?? true,
+            },
+            history: data.history.map((state: any) => ({
+                story: state.story || '',
+                translatedStory: state.translatedStory || '',
+                imageUrl: state.imageUrl || '',
+                choices: Array.isArray(state.choices) ? state.choices : [],
+                vocabulary: Array.isArray(state.vocabulary) ? state.vocabulary : [],
+            })),
+            currentStepIndex: Math.max(0, Math.min(data.currentStepIndex, data.history.length - 1)),
+            characterProfiles: Array.isArray(data.characterProfiles) ? data.characterProfiles : [],
+        };
+        
+        return sanitized;
+    } catch (error) {
+        console.error('Error sanitizing save data:', error);
+        return null;
+    }
+};
 
 const App: React.FC = () => {
     const [appScreen, setAppScreen] = useState<AppScreen>(AppScreen.SETUP);
@@ -23,26 +76,132 @@ const App: React.FC = () => {
     const [notebook, setNotebook] = useState<SavedVocabularyItem[]>([]);
     const [hasSaveData, setHasSaveData] = useState<boolean>(false);
     const [showSaveConfirmation, setShowSaveConfirmation] = useState(false);
+    const [isRecovering, setIsRecovering] = useState(false);
+    const [saveDataInfo, setSaveDataInfo] = useState<{size: string, steps: number} | null>(null);
 
     const gameState = history[currentStepIndex] ?? null;
+
+    // Safe localStorage operations with try-catch and quota management
+    const safeGetItem = (key: string): string | null => {
+        try {
+            return localStorage.getItem(key);
+        } catch (error) {
+            console.error(`Error reading ${key} from localStorage:`, error);
+            return null;
+        }
+    };
+
+    const safeSetItem = (key: string, value: string): boolean => {
+        try {
+            // Check if the data would exceed reasonable limits
+            if (value.length > 4.5 * 1024 * 1024) { // 4.5MB limit to leave room for other data
+                console.warn(`Data for ${key} is very large (${(value.length / 1024 / 1024).toFixed(2)}MB), attempting to compress...`);
+                return false;
+            }
+            
+            localStorage.setItem(key, value);
+            return true;
+        } catch (error) {
+            console.error(`Error writing ${key} to localStorage:`, error);
+            
+            // If quota exceeded, try to clean up old data
+            if (error instanceof Error && error.message.includes('quota')) {
+                console.warn('LocalStorage quota exceeded, attempting cleanup...');
+                try {
+                    // Clear any old save data that might exist
+                    const keysToCheck = ['geminiAdventureSave', 'geminiAdventureNotebook'];
+                    let freedSpace = false;
+                    
+                    keysToCheck.forEach(k => {
+                        if (k !== key) {
+                            const existing = localStorage.getItem(k);
+                            if (existing && existing.length > 1024 * 1024) { // If over 1MB
+                                localStorage.removeItem(k);
+                                freedSpace = true;
+                            }
+                        }
+                    });
+                    
+                    // Try again if we freed some space
+                    if (freedSpace) {
+                        localStorage.setItem(key, value);
+                        return true;
+                    }
+                } catch (retryError) {
+                    console.error('Failed to retry after cleanup:', retryError);
+                }
+            }
+            return false;
+        }
+    };
+
+    const safeRemoveItem = (key: string): void => {
+        try {
+            localStorage.removeItem(key);
+        } catch (error) {
+            console.error(`Error removing ${key} from localStorage:`, error);
+        }
+    };
+
+    // Compress save data by removing unnecessary fields and limiting history
+    const compressSaveData = (data: SaveData): SaveData => {
+        const compressed = { ...data };
+        
+        // Limit history length to prevent localStorage overflow
+        if (compressed.history.length > MAX_HISTORY_LENGTH) {
+            const startIndex = Math.max(0, compressed.currentStepIndex - Math.floor(MAX_HISTORY_LENGTH / 2));
+            const endIndex = Math.min(compressed.history.length, startIndex + MAX_HISTORY_LENGTH);
+            
+            compressed.history = compressed.history.slice(startIndex, endIndex);
+            compressed.currentStepIndex = Math.min(compressed.currentStepIndex - startIndex, compressed.history.length - 1);
+        }
+        
+        // Remove base64 image data from older history entries to save space (keep last 10)
+        const keepImagesCount = 10;
+        if (compressed.history.length > keepImagesCount) {
+            for (let i = 0; i < compressed.history.length - keepImagesCount; i++) {
+                if (compressed.history[i].imageUrl && compressed.history[i].imageUrl.startsWith('data:')) {
+                    compressed.history[i].imageUrl = ''; // Remove base64 image data
+                }
+            }
+        }
+        
+        return compressed;
+    };
 
     // Load notebook and check for saved game on initial mount
     useEffect(() => {
         try {
-            const savedNotebook = localStorage.getItem(NOTEBOOK_KEY);
+            const savedNotebook = safeGetItem(NOTEBOOK_KEY);
             if (savedNotebook) {
                 const parsedNotebook = JSON.parse(savedNotebook) as SavedVocabularyItem[];
-                // Ensure backward compatibility with old saves
-                const sanitizedNotebook = parsedNotebook.map(item => ({
-                    ...item,
-                    correctCount: item.correctCount || 0,
-                    incorrectCount: item.incorrectCount || 0,
-                }));
-                setNotebook(sanitizedNotebook);
+                if (Array.isArray(parsedNotebook)) {
+                    // Ensure backward compatibility with old saves
+                    const sanitizedNotebook = parsedNotebook.map(item => ({
+                        ...item,
+                        correctCount: item.correctCount || 0,
+                        incorrectCount: item.incorrectCount || 0,
+                    }));
+                    setNotebook(sanitizedNotebook);
+                }
             }
-            const savedGame = localStorage.getItem(SAVE_GAME_KEY);
+            
+            const savedGame = safeGetItem(SAVE_GAME_KEY);
             if (savedGame) {
-                setHasSaveData(true);
+                try {
+                    const parsedSave = JSON.parse(savedGame);
+                    if (isValidSaveData(parsedSave)) {
+                        setHasSaveData(true);
+                    } else {
+                        console.warn('Invalid save data detected, removing...');
+                        safeRemoveItem(SAVE_GAME_KEY);
+                        setHasSaveData(false);
+                    }
+                } catch (parseError) {
+                    console.error('Error parsing save data:', parseError);
+                    safeRemoveItem(SAVE_GAME_KEY);
+                    setHasSaveData(false);
+                }
             }
         } catch (e) {
             console.error("Failed to load data from localStorage", e);
@@ -51,36 +210,68 @@ const App: React.FC = () => {
     
     // Save notebook whenever it changes
     useEffect(() => {
-        try {
-            localStorage.setItem(NOTEBOOK_KEY, JSON.stringify(notebook));
-        } catch (e) {
-            console.error("Failed to save notebook to localStorage", e);
+        if (notebook.length > 0) {
+            safeSetItem(NOTEBOOK_KEY, JSON.stringify(notebook));
         }
     }, [notebook]);
 
     const saveGameToLocalStorage = useCallback(() => {
         if (userSettings && history.length > 0) {
-            const saveData: SaveData = { userSettings, history, currentStepIndex, characterProfiles };
-            localStorage.setItem(SAVE_GAME_KEY, JSON.stringify(saveData));
-            setHasSaveData(true);
+            const saveData: SaveData = { 
+                userSettings, 
+                history, 
+                currentStepIndex, 
+                characterProfiles 
+            };
+            
+            // Compress the save data to reduce size
+            const compressedSave = compressSaveData(saveData);
+            const jsonString = JSON.stringify(compressedSave);
+            
+            // Show size information
+            const sizeKB = (jsonString.length / 1024).toFixed(2);
+            console.log(`Save data size: ${sizeKB}KB`);
+            
+            const success = safeSetItem(SAVE_GAME_KEY, jsonString);
+            if (success) {
+                setHasSaveData(true);
+            } else {
+                // If save failed, show warning to user
+                console.warn('Failed to save game data to localStorage. The game history might be too large.');
+                setError('Warning: Could not auto-save game. Your progress is safe in this session, but consider manually saving to a file.');
+                setTimeout(() => setError(null), 5000);
+            }
         }
     }, [userSettings, history, currentStepIndex, characterProfiles]);
     
     useEffect(() => {
-        // Auto-save on state change
-        saveGameToLocalStorage();
-    }, [saveGameToLocalStorage]);
+        // Auto-save on state change and update save info
+        if (userSettings && history.length > 0) {
+            saveGameToLocalStorage();
+            
+            // Update save data info
+            const testSave = { userSettings, history, currentStepIndex, characterProfiles };
+            const jsonString = JSON.stringify(testSave);
+            const sizeKB = (jsonString.length / 1024).toFixed(1);
+            setSaveDataInfo({ size: sizeKB, steps: history.length });
+        }
+    }, [saveGameToLocalStorage, userSettings, history]);
 
     const handleManualSave = () => {
-        // First, save to local storage for the continue button
+        if (!userSettings || history.length === 0) {
+            setError("No game data to save.");
+            return;
+        }
+        
+        // First, save to local storage for the continue button (with compression)
         saveGameToLocalStorage();
         setShowSaveConfirmation(true);
         setTimeout(() => {
             setShowSaveConfirmation(false);
         }, 3000);
 
-        // Then, trigger download
-        if (userSettings && history.length > 0) {
+        // Then, trigger download with FULL uncompressed data
+        try {
             const saveData: SaveData = { userSettings, history, currentStepIndex, characterProfiles };
             const jsonString = JSON.stringify(saveData, null, 2);
             const blob = new Blob([jsonString], { type: "application/json" });
@@ -92,43 +283,58 @@ const App: React.FC = () => {
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error('Failed to create save file:', err);
+            setError('Failed to create save file. Please try again.');
+            setTimeout(() => setError(null), 5000);
         }
     };
-    
 
     const handleContinueGame = useCallback(() => {
+        setIsRecovering(true);
+        setError(null);
+        
         try {
-            const savedGame = localStorage.getItem(SAVE_GAME_KEY);
+            const savedGame = safeGetItem(SAVE_GAME_KEY);
             if (!savedGame) {
                 setError("No saved game found.");
+                setIsRecovering(false);
                 return;
             }
-            const data = JSON.parse(savedGame) as SaveData;
-            if (data.userSettings && data.history && data.history.length > 0 && typeof data.currentStepIndex === 'number') {
-                const loadedUserSettings = {
-                    ...data.userSettings,
-                    generateImages: data.userSettings.generateImages ?? true,
-                };
-                setUserSettings(loadedUserSettings);
-                setHistory(data.history);
-                setCurrentStepIndex(data.currentStepIndex);
-                setCharacterProfiles(data.characterProfiles || []);
-                setAppScreen(AppScreen.GAME);
-                setError(null);
-                setLoadingState(LoadingState.IDLE);
-            } else {
-                throw new Error("Invalid save data format.");
+            
+            const parsedData = JSON.parse(savedGame);
+            const sanitizedData = sanitizeSaveData(parsedData);
+            
+            if (!sanitizedData) {
+                throw new Error("Save data is corrupted or incompatible.");
             }
+            
+            // Load the data
+            setUserSettings(sanitizedData.userSettings);
+            setHistory(sanitizedData.history);
+            setCurrentStepIndex(sanitizedData.currentStepIndex);
+            setCharacterProfiles(sanitizedData.characterProfiles);
+            setAppScreen(AppScreen.GAME);
+            setError(null);
+            setLoadingState(LoadingState.IDLE);
+            
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Could not load game.';
             console.error("Failed to load game from localStorage", err);
-            setError(`Failed to load save file. ${message}`);
-            localStorage.removeItem(SAVE_GAME_KEY);
+            setError(`Failed to load save file: ${message}. The save data may be corrupted.`);
+            
+            // Remove corrupted save
+            safeRemoveItem(SAVE_GAME_KEY);
             setHasSaveData(false);
         }
+        
+        setIsRecovering(false);
     }, []);
 
     const handleLoadGameFromFile = (file: File) => {
+        setIsRecovering(true);
+        setError(null);
+        
         const reader = new FileReader();
         reader.onload = (e) => {
             try {
@@ -136,31 +342,37 @@ const App: React.FC = () => {
                 if (!text) {
                     throw new Error("File is empty.");
                 }
-                const data = JSON.parse(text) as SaveData;
-                if (data.userSettings && data.history && data.history.length > 0 && typeof data.currentStepIndex === 'number') {
-                     const loadedUserSettings = {
-                        ...data.userSettings,
-                        generateImages: data.userSettings.generateImages ?? true,
-                    };
-                    setUserSettings(loadedUserSettings);
-                    setHistory(data.history);
-                    setCurrentStepIndex(data.currentStepIndex);
-                    setCharacterProfiles(data.characterProfiles || []);
-                    setAppScreen(AppScreen.GAME);
-                    setError(null);
-                    setLoadingState(LoadingState.IDLE);
-                } else {
-                    throw new Error("Invalid save data format.");
+                
+                const parsedData = JSON.parse(text);
+                const sanitizedData = sanitizeSaveData(parsedData);
+                
+                if (!sanitizedData) {
+                    throw new Error("Save file is corrupted or incompatible with current version.");
                 }
+                
+                // Load the data
+                setUserSettings(sanitizedData.userSettings);
+                setHistory(sanitizedData.history);
+                setCurrentStepIndex(sanitizedData.currentStepIndex);
+                setCharacterProfiles(sanitizedData.characterProfiles);
+                setAppScreen(AppScreen.GAME);
+                setError(null);
+                setLoadingState(LoadingState.IDLE);
+                
             } catch (err) {
                 const message = err instanceof Error ? err.message : 'Could not load game from file.';
                 console.error("Failed to load game from file", err);
-                setError(`Failed to load save file. ${message}`);
+                setError(`Failed to load save file: ${message}`);
             }
+            
+            setIsRecovering(false);
         };
+        
         reader.onerror = () => {
-             setError(`Failed to read file. ${reader.error?.message ?? 'Unknown error'}`);
+            setError(`Failed to read file: ${reader.error?.message ?? 'Unknown error'}`);
+            setIsRecovering(false);
         };
+        
         reader.readAsText(file);
     };
     
@@ -170,14 +382,17 @@ const App: React.FC = () => {
         setCharacterProfiles(prevProfiles => {
             const profilesMap = new Map(prevProfiles.map(p => [p.name.toLowerCase(), p]));
             newProfiles.forEach(newProfile => {
-                profilesMap.set(newProfile.name.toLowerCase(), newProfile);
+                if (newProfile.name && newProfile.description) {
+                    profilesMap.set(newProfile.name.toLowerCase(), newProfile);
+                }
             });
             return Array.from(profilesMap.values());
         });
     };
 
-
     const getLoadingMessage = () => {
+        if (isRecovering) return "Recovering your adventure...";
+        
         switch (loadingState) {
             case LoadingState.GENERATING_STORY:
                 return "The dungeon master is weaving your fate...";
@@ -332,8 +547,11 @@ const App: React.FC = () => {
     };
 
     const handleSaveWord = (item: VocabularyItem) => {
-        if (!notebook.some(savedItem => savedItem.word.toLowerCase() === item.word.toLowerCase() && savedItem.translation.toLowerCase() === item.translation.toLowerCase())) {
-             const newItem: SavedVocabularyItem = {
+        if (!notebook.some(savedItem => 
+            savedItem.word.toLowerCase() === item.word.toLowerCase() && 
+            savedItem.translation.toLowerCase() === item.translation.toLowerCase())
+        ) {
+            const newItem: SavedVocabularyItem = {
                 ...item,
                 id: `${item.word}-${Date.now()}`,
                 dateAdded: new Date().toISOString(),
@@ -354,6 +572,8 @@ const App: React.FC = () => {
 
     const handleReturnToMenu = () => {
         setAppScreen(AppScreen.SETUP);
+        setError(null);
+        setLoadingState(LoadingState.IDLE);
     };
     
     const handleToggleImageGeneration = () => {
@@ -362,6 +582,35 @@ const App: React.FC = () => {
             return { ...prevSettings, generateImages: !prevSettings.generateImages };
         });
     };
+
+    const handleClearCorruptedSave = () => {
+        safeRemoveItem(SAVE_GAME_KEY);
+        setHasSaveData(false);
+        setError(null);
+    };
+
+    const handleClearOldHistory = () => {
+        if (!history || history.length <= MAX_HISTORY_LENGTH) return;
+        
+        const confirmed = window.confirm(
+            `Your adventure has ${history.length} steps, which is quite large. Would you like to clear older steps to free up space? This will keep the most recent ${MAX_HISTORY_LENGTH} steps.`
+        );
+        
+        if (confirmed) {
+            const startIndex = Math.max(0, currentStepIndex - Math.floor(MAX_HISTORY_LENGTH / 2));
+            const endIndex = Math.min(history.length, startIndex + MAX_HISTORY_LENGTH);
+            const newHistory = history.slice(startIndex, endIndex);
+            const newCurrentIndex = Math.min(currentStepIndex - startIndex, newHistory.length - 1);
+            
+            setHistory(newHistory);
+            setCurrentStepIndex(newCurrentIndex);
+            
+            // Also save to localStorage immediately
+            const newSaveData = { userSettings: userSettings!, history: newHistory, currentStepIndex: newCurrentIndex, characterProfiles };
+            const jsonString = JSON.stringify(newSaveData);
+            safeSetItem(SAVE_GAME_KEY, jsonString);
+        }
+    };
     
     const isLoading = loadingState !== LoadingState.IDLE && loadingState !== LoadingState.ERROR;
     const isAtLatestStep = currentStepIndex === history.length - 1;
@@ -369,11 +618,12 @@ const App: React.FC = () => {
     if (appScreen === AppScreen.SETUP) {
         return <GameSetup 
             onStartGame={handleStartGame} 
-            isLoading={isLoading} 
+            isLoading={isLoading || isRecovering} 
             onContinueGame={handleContinueGame}
             hasSaveData={hasSaveData}
             error={error} 
             onLoadGame={handleLoadGameFromFile}
+            onClearCorruptedSave={handleClearCorruptedSave}
         />;
     }
 
@@ -385,15 +635,24 @@ const App: React.FC = () => {
                 </div>
             )}
             <div className="max-w-7xl mx-auto">
-                 <header className="flex flex-wrap justify-between items-center mb-6 gap-4">
+                <header className="flex flex-wrap justify-between items-center mb-6 gap-4">
                     <div>
                       <h1 className="text-3xl md:text-4xl font-bold text-purple-300 tracking-wider">Gemini LinguaQuest</h1>
                       <p className="text-gray-400 text-sm">{userSettings?.genre} ({userSettings?.sourceLanguage} to {userSettings?.targetLanguage})</p>
+                      {saveDataInfo && (
+                        <p className="text-gray-500 text-xs">
+                          Save: {saveDataInfo.steps} steps, {saveDataInfo.size}KB
+                          {parseFloat(saveDataInfo.size) > 1000 && <span className="text-yellow-400 ml-1">⚠ Large save</span>}
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center flex-wrap gap-2">
                         <button onClick={handleGoBack} disabled={currentStepIndex <= 0 || isLoading} className="bg-gray-800/70 hover:bg-gray-700/90 text-purple-300 font-semibold py-2 px-4 border border-gray-600/80 rounded-lg shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed">Go Back</button>
                         <button onClick={handleGoNext} disabled={isAtLatestStep || isLoading} className="bg-gray-800/70 hover:bg-gray-700/90 text-purple-300 font-semibold py-2 px-4 border border-gray-600/80 rounded-lg shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed">Go Next</button>
-                        <button onClick={handleManualSave} disabled={isLoading} className="bg-gray-800/70 hover:bg-gray-700/90 text-purple-300 font-semibold py-2 px-4 border border-gray-600/80 rounded-lg shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed">Save Game</button>
+                        <button onClick={handleManualSave} disabled={isLoading} className="bg-gray-800/70 hover:bg-gray-700/90 text-purple-300 font-semibold py-2 px-4 border border-gray-600/80 rounded-lg shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed" title="Save full game data to file">Save Game</button>
+                        {saveDataInfo && parseFloat(saveDataInfo.size) > 1000 && history.length > MAX_HISTORY_LENGTH && (
+                            <button onClick={handleClearOldHistory} className="bg-yellow-600/70 hover:bg-yellow-700/90 text-white font-semibold py-2 px-4 border border-yellow-600/80 rounded-lg shadow-md transition-all text-sm" title="Clear older history to reduce save size">Clean History</button>
+                        )}
                         <button onClick={() => setAppScreen(AppScreen.NOTEBOOK)} className="bg-gray-800/70 hover:bg-gray-700/90 text-purple-300 font-semibold py-2 px-4 border border-gray-600/80 rounded-lg shadow-md transition-all">Notebook ({notebook.length})</button>
                         <div className="flex items-center gap-2 bg-gray-800/70 border border-gray-600/80 rounded-lg px-3 py-1.5">
                             <label htmlFor="image-toggle" className="text-purple-300 font-semibold text-sm cursor-pointer" title="Toggle Image Generation">Images</label>
@@ -425,16 +684,16 @@ const App: React.FC = () => {
                 {appScreen === AppScreen.GAME && (
                      <main className="bg-black bg-opacity-30 rounded-2xl shadow-2xl shadow-purple-900/20 overflow-hidden">
                         <div className="relative w-full h-64 lg:h-80 bg-gray-800">
-                            {(loadingState !== LoadingState.IDLE || error || !gameState?.imageUrl || !userSettings?.generateImages) && (
+                            {(loadingState !== LoadingState.IDLE || error || !gameState?.imageUrl || !userSettings?.generateImages || isRecovering) && (
                                 <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm flex flex-col justify-center items-center z-10 p-4 text-center">
-                                    {isLoading && <LoadingSpinner />}
+                                    {(isLoading || isRecovering) && <LoadingSpinner />}
                                     <p className="mt-4 text-gray-400">{getLoadingMessage()}</p>
                                     {error && <p className="mt-2 text-red-400">{error}</p>}
-                                    {(!userSettings?.generateImages && !isLoading) && <p className="mt-2 text-gray-500">Image generation is disabled.</p>}
+                                    {(!userSettings?.generateImages && !isLoading && !isRecovering) && <p className="mt-2 text-gray-500">Image generation is disabled.</p>}
                                     {error && <button onClick={handleReturnToMenu} className="mt-4 bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition-colors">Return to Menu</button>}
                                 </div>
                             )}
-                            {gameState?.imageUrl && <img src={gameState.imageUrl} alt="Adventure Scene" className={`w-full h-full object-cover transition-opacity duration-1000 ${isLoading || !userSettings?.generateImages ? 'opacity-30' : 'opacity-100'}`} />}
+                            {gameState?.imageUrl && <img src={gameState.imageUrl} alt="Adventure Scene" className={`w-full h-full object-cover transition-opacity duration-1000 ${isLoading || !userSettings?.generateImages || isRecovering ? 'opacity-30' : 'opacity-100'}`} />}
                         </div>
                         
                         <div className="p-6 md:p-8">

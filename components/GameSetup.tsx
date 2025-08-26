@@ -1,5 +1,3 @@
-
-
 import React, { useState } from 'react';
 import { UserSettings } from '../types';
 import { generatePromptSuggestion } from '../services/geminiService';
@@ -11,9 +9,18 @@ interface GameSetupProps {
     onContinueGame: () => void;
     hasSaveData: boolean;
     error: string | null;
+    onClearCorruptedSave?: () => void;
 }
 
-const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, isLoading, onLoadGame, onContinueGame, hasSaveData, error }) => {
+const GameSetup: React.FC<GameSetupProps> = ({ 
+    onStartGame, 
+    isLoading, 
+    onLoadGame, 
+    onContinueGame, 
+    hasSaveData, 
+    error, 
+    onClearCorruptedSave 
+}) => {
     const [prompt, setPrompt] = useState('');
     const [genre, setGenre] = useState('Dark Fantasy');
     const [sourceLanguage, setSourceLanguage] = useState('English');
@@ -89,6 +96,11 @@ ${result.prompt}`;
         }
     };
 
+    const isCorruptedSaveError = error && (
+        error.includes('corrupted') || 
+        error.includes('incompatible') || 
+        error.includes('Invalid save')
+    );
 
     return (
         <div className="min-h-screen bg-gray-900 text-gray-200 flex flex-col justify-center items-center p-4">
@@ -125,7 +137,19 @@ ${result.prompt}`;
                 </div>
 
                 <main className="bg-black bg-opacity-30 rounded-2xl shadow-2xl shadow-purple-900/20 p-6 md:p-8">
-                    {error && <p className="bg-red-900/50 border border-red-500/50 text-red-300 p-3 rounded-lg mb-6 text-center">{error}</p>}
+                    {error && (
+                        <div className="bg-red-900/50 border border-red-500/50 text-red-300 p-3 rounded-lg mb-6 text-center">
+                            <p>{error}</p>
+                            {isCorruptedSaveError && onClearCorruptedSave && (
+                                <button
+                                    onClick={onClearCorruptedSave}
+                                    className="mt-3 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition-colors text-sm"
+                                >
+                                    Clear Corrupted Save Data
+                                </button>
+                            )}
+                        </div>
+                    )}
                     <form onSubmit={handleSubmit} className="space-y-6">
                         
                         <div>
