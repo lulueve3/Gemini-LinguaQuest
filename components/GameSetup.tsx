@@ -9,7 +9,7 @@ interface GameSetupProps {
     onContinueGame: () => void;
     hasSaveData: boolean;
     error: string | null;
-    onClearCorruptedSave?: () => void;
+    onClearData?: () => void;
 }
 
 const GameSetup: React.FC<GameSetupProps> = ({ 
@@ -19,7 +19,7 @@ const GameSetup: React.FC<GameSetupProps> = ({
     onContinueGame, 
     hasSaveData, 
     error, 
-    onClearCorruptedSave 
+    onClearData 
 }) => {
     const [prompt, setPrompt] = useState('');
     const [genre, setGenre] = useState('Dark Fantasy');
@@ -99,7 +99,8 @@ ${result.prompt}`;
     const isCorruptedSaveError = error && (
         error.includes('corrupted') || 
         error.includes('incompatible') || 
-        error.includes('Invalid save')
+        error.includes('Invalid save') ||
+        error.includes('Failed to load')
     );
 
     return (
@@ -140,12 +141,12 @@ ${result.prompt}`;
                     {error && (
                         <div className="bg-red-900/50 border border-red-500/50 text-red-300 p-3 rounded-lg mb-6 text-center">
                             <p>{error}</p>
-                            {isCorruptedSaveError && onClearCorruptedSave && (
+                            {isCorruptedSaveError && onClearData && (
                                 <button
-                                    onClick={onClearCorruptedSave}
+                                    onClick={onClearData}
                                     className="mt-3 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition-colors text-sm"
                                 >
-                                    Clear Corrupted Save Data
+                                    Clear All Saved Data
                                 </button>
                             )}
                         </div>
@@ -185,11 +186,40 @@ ${result.prompt}`;
                                 id="prompt"
                                 value={prompt}
                                 onChange={(e) => setPrompt(e.target.value)}
-                                placeholder="e.g., A sci-fi mystery on a derelict space station."
-                                className="w-full h-48 bg-gray-800/50 border border-gray-600/50 rounded-lg p-3 focus:ring-2 focus:ring-purple-400 focus:outline-none transition"
+                                placeholder="e.g., A lone knight ventures into a cursed forest..."
+                                className="w-full h-32 bg-gray-800/50 border border-gray-600/50 rounded-lg p-3 focus:ring-2 focus:ring-purple-400 focus:outline-none transition"
                                 required
+                                disabled={isSuggesting || isLoading}
                             />
                         </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label htmlFor="sourceLanguage" className="block text-lg font-bold text-purple-300 mb-2">Source Language</label>
+                                <input
+                                    type="text"
+                                    id="sourceLanguage"
+                                    value={sourceLanguage}
+                                    onChange={(e) => setSourceLanguage(e.target.value)}
+                                    className="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg p-3 focus:ring-2 focus:ring-purple-400 focus:outline-none transition"
+                                    required
+                                    disabled={isLoading}
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="targetLanguage" className="block text-lg font-bold text-purple-300 mb-2">Target Language</label>
+                                <input
+                                    type="text"
+                                    id="targetLanguage"
+                                    value={targetLanguage}
+                                    onChange={(e) => setTargetLanguage(e.target.value)}
+                                    className="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg p-3 focus:ring-2 focus:ring-purple-400 focus:outline-none transition"
+                                    required
+                                    disabled={isLoading}
+                                />
+                            </div>
+                        </div>
+
                         <div>
                             <label htmlFor="genre" className="block text-lg font-bold text-purple-300 mb-2">Genre</label>
                             <input
@@ -199,69 +229,59 @@ ${result.prompt}`;
                                 onChange={(e) => setGenre(e.target.value)}
                                 className="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg p-3 focus:ring-2 focus:ring-purple-400 focus:outline-none transition"
                                 required
+                                disabled={isLoading}
                             />
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                             <div>
-                                <label htmlFor="sourceLang" className="block text-lg font-bold text-purple-300 mb-2">Story Language</label>
-                                <input type="text" id="sourceLang" value={sourceLanguage} onChange={e => setSourceLanguage(e.target.value)} className="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg p-3 focus:ring-2 focus:ring-purple-400 focus:outline-none transition" required />
-                            </div>
-                            <div>
-                                <label htmlFor="targetLang" className="block text-lg font-bold text-purple-300 mb-2">Translate to</label>
-                                <input type="text" id="targetLang" value={targetLanguage} onChange={e => setTargetLanguage(e.target.value)} className="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg p-3 focus:ring-2 focus:ring-purple-400 focus:outline-none transition" required />
-                            </div>
-                        </div>
-
-                        <div className="pt-2 text-left">
-                            <label className="flex items-center gap-3 cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    checked={generateImages}
-                                    onChange={(e) => setGenerateImages(e.target.checked)}
-                                    className="h-5 w-5 rounded bg-gray-700 border-gray-600 text-purple-600 focus:ring-purple-500"
-                                />
-                                <span className="text-gray-300">Generate images for the story</span>
-                            </label>
-                            <p className="text-xs text-gray-500 ml-8">Disabling this can avoid image generation errors if you encounter API limits.</p>
-                        </div>
-                        
-                        <input
-                            type="file"
-                            id="loadGameInput"
-                            className="hidden"
-                            accept=".json,application/json"
-                            onChange={handleFileChange}
-                        />
-
-                        <div className="space-y-3 pt-2">
-                            {hasSaveData && (
-                                <button
-                                    type="button"
-                                    onClick={onContinueGame}
-                                    disabled={isLoading || isSuggesting}
-                                    className="w-full bg-green-600 hover:bg-green-700 text-white font-bold text-xl py-3 px-4 rounded-lg transition-all duration-300 disabled:opacity-50"
-                                >
-                                    Continue Last Adventure
-                                </button>
-                             )}
-                             <button
+                        <div className="flex items-center justify-between bg-gray-800/50 border border-gray-600/50 rounded-lg p-4">
+                            <label htmlFor="image-toggle" className="text-lg font-bold text-purple-300 cursor-pointer">Generate Images</label>
+                            <button
                                 type="button"
-                                onClick={handleLoadClick}
-                                disabled={isLoading || isSuggesting}
-                                className="w-full bg-gray-600 hover:bg-gray-500 text-white font-bold text-xl py-3 px-4 rounded-lg transition-all duration-300 disabled:opacity-50"
+                                id="image-toggle"
+                                onClick={() => setGenerateImages(!generateImages)}
+                                disabled={isLoading}
+                                className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-purple-500 ${
+                                    generateImages ? 'bg-green-500' : 'bg-gray-600'
+                                }`}
                             >
-                                Load Game from File
+                                <span
+                                    className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform duration-300 ${
+                                        generateImages ? 'translate-x-6' : 'translate-x-1'
+                                    }`}
+                                />
                             </button>
+                        </div>
+
+                        <div className="pt-4">
                             <button
                                 type="submit"
-                                disabled={isLoading || isSuggesting}
-                                className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold text-lg py-3 px-4 rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105"
+                                disabled={isLoading}
+                                className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 px-4 rounded-lg text-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105"
                             >
-                                {isLoading ? 'Summoning...' : 'Start New Adventure'}
+                                {isLoading ? 'Embarking...' : 'Start Adventure'}
                             </button>
                         </div>
                     </form>
+
+                    <div className="mt-8 pt-6 border-t border-gray-700/50 flex flex-col sm:flex-row justify-center items-center gap-4">
+                        {hasSaveData && (
+                            <button
+                                onClick={onContinueGame}
+                                disabled={isLoading}
+                                className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 disabled:opacity-50"
+                            >
+                                Continue Last Adventure
+                            </button>
+                        )}
+                        <button
+                            onClick={handleLoadClick}
+                            disabled={isLoading}
+                            className="w-full sm:w-auto bg-gray-600 hover:bg-gray-500 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 disabled:opacity-50"
+                        >
+                            Load From File
+                        </button>
+                        <input type="file" id="loadGameInput" accept=".json" onChange={handleFileChange} className="hidden" />
+                    </div>
                 </main>
             </div>
         </div>

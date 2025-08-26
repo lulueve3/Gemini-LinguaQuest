@@ -40,7 +40,8 @@ export interface SavedVocabularyItem extends VocabularyItem {
 export interface GameState {
   story: string; 
   translatedStory: string; 
-  imageUrl: string;
+  imageUrl: string; // Used for save file (base64)
+  imageId?: string; // Used for DB reference
   choices: ChoiceItem[];
   vocabulary: VocabularyItem[];
 }
