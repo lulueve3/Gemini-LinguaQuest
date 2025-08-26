@@ -1,5 +1,5 @@
-// Fix: Changed Dexie import from default to named to ensure correct class inheritance.
-import { Dexie, type Table } from 'dexie';
+// Fix: Changed Dexie import from named to default to ensure correct class inheritance.
+import Dexie, { type Table } from 'dexie';
 import { UserSettings, CharacterProfile, ChoiceItem, VocabularyItem, SavedVocabularyItem } from '../types';
 
 export interface HistoryStep {
