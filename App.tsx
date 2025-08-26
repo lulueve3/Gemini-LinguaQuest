@@ -78,6 +78,7 @@ const App: React.FC = () => {
     const [showSaveConfirmation, setShowSaveConfirmation] = useState(false);
     const [isRecovering, setIsRecovering] = useState(false);
     const [saveDataInfo, setSaveDataInfo] = useState<{size: string, steps: number} | null>(null);
+    const [isImageFullscreen, setIsImageFullscreen] = useState(false);
 
     const gameState = history[currentStepIndex] ?? null;
 
@@ -214,6 +215,23 @@ const App: React.FC = () => {
             safeSetItem(NOTEBOOK_KEY, JSON.stringify(notebook));
         }
     }, [notebook]);
+
+    // Handle Esc key to close fullscreen image
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                setIsImageFullscreen(false);
+            }
+        };
+
+        if (isImageFullscreen) {
+            document.addEventListener('keydown', handleKeyDown);
+        }
+
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [isImageFullscreen]);
 
     const saveGameToLocalStorage = useCallback(() => {
         if (userSettings && history.length > 0) {
@@ -683,7 +701,7 @@ const App: React.FC = () => {
 
                 {appScreen === AppScreen.GAME && (
                      <main className="bg-black bg-opacity-30 rounded-2xl shadow-2xl shadow-purple-900/20 overflow-hidden">
-                        <div className="relative w-full h-64 lg:h-80 bg-gray-800">
+                        <div className="relative w-full h-64 lg:h-80 bg-gray-800 group">
                             {(loadingState !== LoadingState.IDLE || error || !gameState?.imageUrl || !userSettings?.generateImages || isRecovering) && (
                                 <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm flex flex-col justify-center items-center z-10 p-4 text-center">
                                     {(isLoading || isRecovering) && <LoadingSpinner />}
@@ -693,7 +711,22 @@ const App: React.FC = () => {
                                     {error && <button onClick={handleReturnToMenu} className="mt-4 bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition-colors">Return to Menu</button>}
                                 </div>
                             )}
-                            {gameState?.imageUrl && <img src={gameState.imageUrl} alt="Adventure Scene" className={`w-full h-full object-cover transition-opacity duration-1000 ${isLoading || !userSettings?.generateImages || isRecovering ? 'opacity-30' : 'opacity-100'}`} />}
+                            {gameState?.imageUrl && (
+                                <>
+                                    <img src={gameState.imageUrl} alt="Adventure Scene" className={`w-full h-full object-contain transition-opacity duration-1000 ${isLoading || !userSettings?.generateImages || isRecovering ? 'opacity-30' : 'opacity-100'}`} />
+                                    {!isLoading && !isRecovering && userSettings?.generateImages && (
+                                        <button
+                                            onClick={() => setIsImageFullscreen(true)}
+                                            className="absolute top-2 right-2 bg-black/50 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100 outline-none focus:ring-2 focus:ring-purple-400 z-20"
+                                            aria-label="View image in fullscreen"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 1v4m0 0h-4m4 0l-5-5" />
+                                            </svg>
+                                        </button>
+                                    )}
+                                </>
+                            )}
                         </div>
                         
                         <div className="p-6 md:p-8">
@@ -741,6 +774,31 @@ const App: React.FC = () => {
                     </main>
                 )}
             </div>
+            {isImageFullscreen && gameState?.imageUrl && (
+                <div 
+                    className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4 animate-fade-in"
+                    onClick={() => setIsImageFullscreen(false)}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Fullscreen image view"
+                >
+                    <button 
+                        className="absolute top-4 right-4 text-white bg-black/50 p-2 rounded-full hover:bg-black/75 transition-colors z-10"
+                        aria-label="Close fullscreen view"
+                        onClick={() => setIsImageFullscreen(false)}
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                    <img 
+                        src={gameState.imageUrl} 
+                        alt="Adventure Scene Fullscreen" 
+                        className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                </div>
+            )}
         </div>
     );
 };
