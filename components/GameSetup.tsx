@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { UserSettings } from '../types';
 import { generatePromptSuggestion } from '../services/geminiService';
@@ -9,6 +10,7 @@ interface GameSetupProps {
     onContinueGame: () => void;
     hasSaveData: boolean;
     error: string | null;
+    successMessage?: string | null;
     onClearData?: () => void;
 }
 
@@ -18,7 +20,8 @@ const GameSetup: React.FC<GameSetupProps> = ({
     onLoadGame, 
     onContinueGame, 
     hasSaveData, 
-    error, 
+    error,
+    successMessage,
     onClearData 
 }) => {
     const [prompt, setPrompt] = useState('');
@@ -152,6 +155,11 @@ ${result.prompt}`;
                                 )}
                             </div>
                         )}
+                        {successMessage && !error && (
+                             <div className="bg-green-900/50 border border-green-700/80 text-green-300 p-3 rounded-lg mb-6 text-center animate-fade-in">
+                                <p>{successMessage}</p>
+                            </div>
+                        )}
                         <form onSubmit={handleSubmit} className="space-y-6">
                             
                             <div>
@@ -265,15 +273,13 @@ ${result.prompt}`;
                         </form>
 
                         <div className="mt-8 pt-6 border-t border-gray-700/50 flex flex-col sm:flex-row justify-center items-center gap-4">
-                            {hasSaveData && (
-                                <button
-                                    onClick={onContinueGame}
-                                    disabled={isLoading}
-                                    className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 disabled:opacity-50"
-                                >
-                                    Continue Last Adventure
-                                </button>
-                            )}
+                            <button
+                                onClick={onContinueGame}
+                                disabled={isLoading || !hasSaveData}
+                                className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Continue Last Adventure
+                            </button>
                             <button
                                 onClick={handleLoadClick}
                                 disabled={isLoading}

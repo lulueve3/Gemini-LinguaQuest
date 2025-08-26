@@ -41,6 +41,7 @@ const App: React.FC = () => {
     const [currentStepIndex, setCurrentStepIndex] = useState<number>(-1);
     const [loadingState, setLoadingState] = useState<LoadingState>(LoadingState.IDLE);
     const [error, setError] = useState<string | null>(null);
+    const [successMessage, setSuccessMessage] = useState<string | null>(null);
     const [notebook, setNotebook] = useState<SavedVocabularyItem[]>([]);
     const [hasSaveData, setHasSaveData] = useState<boolean>(false);
     const [showSaveConfirmation, setShowSaveConfirmation] = useState(false);
@@ -193,6 +194,7 @@ const App: React.FC = () => {
     const handleContinueGame = useCallback(async () => {
         setIsRecovering(true);
         setError(null);
+        setSuccessMessage(null);
         try {
             const session = await db.session.get(SESSION_ID);
             const historySteps = await db.history.toArray();
@@ -222,6 +224,7 @@ const App: React.FC = () => {
     const handleLoadGameFromFile = (file: File) => {
         setIsRecovering(true);
         setError(null);
+        setSuccessMessage(null);
         const reader = new FileReader();
         reader.onload = async (e) => {
             try {
@@ -229,7 +232,10 @@ const App: React.FC = () => {
                 if (!text) throw new Error("File is empty.");
                 
                 const parsedData = JSON.parse(text) as SaveData;
-                // Add validation here if needed
+                
+                if (!parsedData.userSettings || !Array.isArray(parsedData.history) || typeof parsedData.currentStepIndex !== 'number' || !Array.isArray(parsedData.characterProfiles)) {
+                    throw new Error("Invalid or corrupted save file format.");
+                }
                 
                 await clearAllData();
 
@@ -262,13 +268,21 @@ const App: React.FC = () => {
                     await db.session.put(sessionData);
                 });
 
-                // Now load the state into the app
-                await handleContinueGame();
+                // Set component state from parsed data and switch to game screen
+                setUserSettings(parsedData.userSettings);
+                setCharacterProfiles(parsedData.characterProfiles);
+                const historyForState = parsedData.history.map(step => ({ ...step, imageUrl: '' }));
+                setHistory(historyForState);
+                setCurrentStepIndex(parsedData.currentStepIndex);
+                setHasSaveData(true);
+                setAppScreen(AppScreen.GAME);
 
             } catch (err) {
                 const message = err instanceof Error ? err.message : 'Could not load game from file.';
                 console.error("Failed to load game from file", err);
                 setError(`Failed to load save file: ${message}`);
+                await clearAllData();
+                setHasSaveData(false);
             } finally {
                 setIsRecovering(false);
             }
@@ -304,6 +318,7 @@ const App: React.FC = () => {
     const handleStartGame = useCallback(async (settings: UserSettings) => {
         setLoadingState(LoadingState.GENERATING_STORY);
         setError(null);
+        setSuccessMessage(null);
         await clearAllData();
         setHistory([]);
         setCurrentStepIndex(-1);
@@ -431,7 +446,7 @@ const App: React.FC = () => {
         if (currentStepIndex > 0) setCurrentStepIndex(prev => prev - 1);
     };
     const handleGoNext = () => {
-        if (currentStepIndex < history.length - 1) setCurrentStepIndex(prev => prev + 1);
+        if (currentStepIndex < history.length - 1) setCurrentStepIndex(prev => prev - 1);
     };
 
     const handleSaveWord = async (item: VocabularyItem) => {
@@ -490,7 +505,8 @@ const App: React.FC = () => {
             isLoading={isLoading || isRecovering} 
             onContinueGame={handleContinueGame}
             hasSaveData={hasSaveData}
-            error={error} 
+            error={error}
+            successMessage={successMessage}
             onLoadGame={handleLoadGameFromFile}
             onClearData={handleClearData}
         />;
