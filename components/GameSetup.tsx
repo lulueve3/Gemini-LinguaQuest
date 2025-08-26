@@ -104,186 +104,191 @@ ${result.prompt}`;
     );
 
     return (
-        <div className="min-h-screen bg-gray-900 text-gray-200 flex flex-col justify-center items-center p-4">
-            <div className="w-full max-w-3xl text-center">
-                 <header className="mb-8">
-                    <h1 className="text-4xl md:text-5xl font-bold text-purple-300 tracking-wider">Gemini LinguaQuest</h1>
-                    <p className="text-gray-400 mt-2">Your Language Learning RPG</p>
-                </header>
+        <div className="min-h-screen bg-gray-900 text-gray-200 flex flex-col p-4">
+            <div className="flex-grow flex flex-col justify-center items-center">
+                <div className="w-full max-w-3xl text-center">
+                    <header className="mb-8">
+                        <h1 className="text-4xl md:text-5xl font-bold text-purple-300 tracking-wider">Gemini LinguaQuest</h1>
+                        <p className="text-gray-400 mt-2">Your Language Learning RPG</p>
+                    </header>
 
-                <div className="mb-8 p-6 bg-gray-800/30 border border-gray-700/50 rounded-lg text-left">
-                    <h2 className="text-xl font-bold text-purple-300 mb-4 text-center">How It Works</h2>
-                    <ul className="space-y-3 text-gray-300">
-                        <li className="flex items-start gap-3">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-purple-400 mt-1 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
-                            <span><strong>Create Your World:</strong> Write your own story prompt or get inspiration from your favorite anime/manga.</span>
-                        </li>
-                        <li className="flex items-start gap-3">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-purple-400 mt-1 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m12 8c0 5.523-4.477 10-10 10S5 18.523 5 13s4.477-10 10-10c.342 0 .678.024 1.007.07M7 13h2.5M15 13h2.5" /></svg>
-                            <span><strong>Learn Through Story:</strong> Experience your adventure with a side-by-side translation, helping you learn in context.</span>
-                        </li>
-                        <li className="flex items-start gap-3">
-                           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-purple-400 mt-1 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v11.494m-9-5.494h18" /></svg>
-                            <span><strong>Build Vocabulary:</strong> The AI identifies key words from the story. Save them to your personal notebook with one click.</span>
-                        </li>
-                        <li className="flex items-start gap-3">
-                           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-purple-400 mt-1 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-                            <span><strong>Review & Master:</strong> Study your saved words anytime using the built-in flashcard system.</span>
-                        </li>
-                         <li className="flex items-start gap-3">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-purple-400 mt-1 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
-                            <span><strong>Save & Load:</strong> Manually save your progress to a file and load it up anytime to continue your adventure.</span>
-                        </li>
-                    </ul>
-                </div>
+                    <div className="mb-8 p-6 bg-gray-800/30 border border-gray-700/50 rounded-lg text-left">
+                        <h2 className="text-xl font-bold text-purple-300 mb-4 text-center">How It Works</h2>
+                        <ul className="space-y-3 text-gray-300">
+                            <li className="flex items-start gap-3">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-purple-400 mt-1 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                                <span><strong>Create Your World:</strong> Write your own story prompt or get inspiration from your favorite anime/manga.</span>
+                            </li>
+                            <li className="flex items-start gap-3">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-purple-400 mt-1 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m12 8c0 5.523-4.477 10-10 10S5 18.523 5 13s4.477-10 10-10c.342 0 .678.024 1.007.07M7 13h2.5M15 13h2.5" /></svg>
+                                <span><strong>Learn Through Story:</strong> Experience your adventure with a side-by-side translation, helping you learn in context.</span>
+                            </li>
+                            <li className="flex items-start gap-3">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-purple-400 mt-1 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v11.494m-9-5.494h18" /></svg>
+                                <span><strong>Build Vocabulary:</strong> The AI identifies key words from the story. Save them to your personal notebook with one click.</span>
+                            </li>
+                            <li className="flex items-start gap-3">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-purple-400 mt-1 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                                <span><strong>Review & Master:</strong> Study your saved words anytime using the built-in flashcard system.</span>
+                            </li>
+                            <li className="flex items-start gap-3">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-purple-400 mt-1 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
+                                <span><strong>Save & Load:</strong> Manually save your progress to a file and load it up anytime to continue your adventure.</span>
+                            </li>
+                        </ul>
+                    </div>
 
-                <main className="bg-black bg-opacity-30 rounded-2xl shadow-2xl shadow-purple-900/20 p-6 md:p-8">
-                    {error && (
-                        <div className="bg-red-900/50 border border-red-500/50 text-red-300 p-3 rounded-lg mb-6 text-center">
-                            <p>{error}</p>
-                            {isCorruptedSaveError && onClearData && (
-                                <button
-                                    onClick={onClearData}
-                                    className="mt-3 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition-colors text-sm"
-                                >
-                                    Clear All Saved Data
-                                </button>
-                            )}
-                        </div>
-                    )}
-                    <form onSubmit={handleSubmit} className="space-y-6">
-                        
-                        <div>
-                            <label className="block text-lg font-bold text-purple-300 mb-2">Need inspiration?</label>
-                            <p className="text-sm text-gray-400 mb-3">Enter an anime/manga title to get a detailed story suggestion.</p>
-                            <div className="flex flex-col sm:flex-row gap-3">
-                                <input
-                                    type="text"
-                                    id="anime"
-                                    value={animeName}
-                                    onChange={(e) => setAnimeName(e.target.value)}
-                                    placeholder="e.g., One Punch Man"
-                                    className="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg p-3 focus:ring-2 focus:ring-purple-400 focus:outline-none transition"
+                    <main className="bg-black bg-opacity-30 rounded-2xl shadow-2xl shadow-purple-900/20 p-6 md:p-8">
+                        {error && (
+                            <div className="bg-red-900/50 border border-red-500/50 text-red-300 p-3 rounded-lg mb-6 text-center">
+                                <p>{error}</p>
+                                {isCorruptedSaveError && onClearData && (
+                                    <button
+                                        onClick={onClearData}
+                                        className="mt-3 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition-colors text-sm"
+                                    >
+                                        Clear All Saved Data
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                        <form onSubmit={handleSubmit} className="space-y-6">
+                            
+                            <div>
+                                <label className="block text-lg font-bold text-purple-300 mb-2">Need inspiration?</label>
+                                <p className="text-sm text-gray-400 mb-3">Enter an anime/manga title to get a detailed story suggestion.</p>
+                                <div className="flex flex-col sm:flex-row gap-3">
+                                    <input
+                                        type="text"
+                                        id="anime"
+                                        value={animeName}
+                                        onChange={(e) => setAnimeName(e.target.value)}
+                                        placeholder="e.g., One Punch Man"
+                                        className="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg p-3 focus:ring-2 focus:ring-purple-400 focus:outline-none transition"
+                                        disabled={isSuggesting || isLoading}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={handleSuggestPrompt}
+                                        disabled={isSuggesting || isLoading || !animeName.trim()}
+                                        className="sm:w-auto bg-gray-600 hover:bg-gray-500 text-white font-bold py-3 px-4 rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                                    >
+                                        {isSuggesting ? 'Generating...' : 'Suggest'}
+                                    </button>
+                                </div>
+                                {suggestionError && <p className="text-red-300 mt-2 text-left">{suggestionError}</p>}
+                            </div>
+
+                            <div className="w-full border-t border-gray-700/50 my-2"></div>
+
+                            <div>
+                                <label htmlFor="prompt" className="block text-lg font-bold text-purple-300 mb-2">Adventure Prompt</label>
+                                <textarea
+                                    id="prompt"
+                                    value={prompt}
+                                    onChange={(e) => setPrompt(e.target.value)}
+                                    placeholder="e.g., A lone knight ventures into a cursed forest..."
+                                    className="w-full h-32 bg-gray-800/50 border border-gray-600/50 rounded-lg p-3 focus:ring-2 focus:ring-purple-400 focus:outline-none transition"
+                                    required
                                     disabled={isSuggesting || isLoading}
                                 />
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label htmlFor="sourceLanguage" className="block text-lg font-bold text-purple-300 mb-2">Source Language</label>
+                                    <input
+                                        type="text"
+                                        id="sourceLanguage"
+                                        value={sourceLanguage}
+                                        onChange={(e) => setSourceLanguage(e.target.value)}
+                                        className="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg p-3 focus:ring-2 focus:ring-purple-400 focus:outline-none transition"
+                                        required
+                                        disabled={isLoading}
+                                    />
+                                </div>
+                                <div>
+                                    <label htmlFor="targetLanguage" className="block text-lg font-bold text-purple-300 mb-2">Target Language</label>
+                                    <input
+                                        type="text"
+                                        id="targetLanguage"
+                                        value={targetLanguage}
+                                        onChange={(e) => setTargetLanguage(e.target.value)}
+                                        className="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg p-3 focus:ring-2 focus:ring-purple-400 focus:outline-none transition"
+                                        required
+                                        disabled={isLoading}
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label htmlFor="genre" className="block text-lg font-bold text-purple-300 mb-2">Genre</label>
+                                <input
+                                    type="text"
+                                    id="genre"
+                                    value={genre}
+                                    onChange={(e) => setGenre(e.target.value)}
+                                    className="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg p-3 focus:ring-2 focus:ring-purple-400 focus:outline-none transition"
+                                    required
+                                    disabled={isLoading}
+                                />
+                            </div>
+
+                            <div className="flex items-center justify-between bg-gray-800/50 border border-gray-600/50 rounded-lg p-4">
+                                <label htmlFor="image-toggle" className="text-lg font-bold text-purple-300 cursor-pointer">Generate Images</label>
                                 <button
                                     type="button"
-                                    onClick={handleSuggestPrompt}
-                                    disabled={isSuggesting || isLoading || !animeName.trim()}
-                                    className="sm:w-auto bg-gray-600 hover:bg-gray-500 text-white font-bold py-3 px-4 rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                                    id="image-toggle"
+                                    onClick={() => setGenerateImages(!generateImages)}
+                                    disabled={isLoading}
+                                    className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-purple-500 ${
+                                        generateImages ? 'bg-green-500' : 'bg-gray-600'
+                                    }`}
                                 >
-                                    {isSuggesting ? 'Generating...' : 'Suggest'}
+                                    <span
+                                        className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform duration-300 ${
+                                            generateImages ? 'translate-x-6' : 'translate-x-1'
+                                        }`}
+                                    />
                                 </button>
                             </div>
-                            {suggestionError && <p className="text-red-300 mt-2 text-left">{suggestionError}</p>}
-                        </div>
 
-                        <div className="w-full border-t border-gray-700/50 my-2"></div>
-
-                        <div>
-                            <label htmlFor="prompt" className="block text-lg font-bold text-purple-300 mb-2">Adventure Prompt</label>
-                            <textarea
-                                id="prompt"
-                                value={prompt}
-                                onChange={(e) => setPrompt(e.target.value)}
-                                placeholder="e.g., A lone knight ventures into a cursed forest..."
-                                className="w-full h-32 bg-gray-800/50 border border-gray-600/50 rounded-lg p-3 focus:ring-2 focus:ring-purple-400 focus:outline-none transition"
-                                required
-                                disabled={isSuggesting || isLoading}
-                            />
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <label htmlFor="sourceLanguage" className="block text-lg font-bold text-purple-300 mb-2">Source Language</label>
-                                <input
-                                    type="text"
-                                    id="sourceLanguage"
-                                    value={sourceLanguage}
-                                    onChange={(e) => setSourceLanguage(e.target.value)}
-                                    className="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg p-3 focus:ring-2 focus:ring-purple-400 focus:outline-none transition"
-                                    required
+                            <div className="pt-4">
+                                <button
+                                    type="submit"
                                     disabled={isLoading}
-                                />
+                                    className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 px-4 rounded-lg text-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105"
+                                >
+                                    {isLoading ? 'Embarking...' : 'Start Adventure'}
+                                </button>
                             </div>
-                            <div>
-                                <label htmlFor="targetLanguage" className="block text-lg font-bold text-purple-300 mb-2">Target Language</label>
-                                <input
-                                    type="text"
-                                    id="targetLanguage"
-                                    value={targetLanguage}
-                                    onChange={(e) => setTargetLanguage(e.target.value)}
-                                    className="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg p-3 focus:ring-2 focus:ring-purple-400 focus:outline-none transition"
-                                    required
+                        </form>
+
+                        <div className="mt-8 pt-6 border-t border-gray-700/50 flex flex-col sm:flex-row justify-center items-center gap-4">
+                            {hasSaveData && (
+                                <button
+                                    onClick={onContinueGame}
                                     disabled={isLoading}
-                                />
-                            </div>
-                        </div>
-
-                        <div>
-                            <label htmlFor="genre" className="block text-lg font-bold text-purple-300 mb-2">Genre</label>
-                            <input
-                                type="text"
-                                id="genre"
-                                value={genre}
-                                onChange={(e) => setGenre(e.target.value)}
-                                className="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg p-3 focus:ring-2 focus:ring-purple-400 focus:outline-none transition"
-                                required
-                                disabled={isLoading}
-                            />
-                        </div>
-
-                        <div className="flex items-center justify-between bg-gray-800/50 border border-gray-600/50 rounded-lg p-4">
-                            <label htmlFor="image-toggle" className="text-lg font-bold text-purple-300 cursor-pointer">Generate Images</label>
+                                    className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 disabled:opacity-50"
+                                >
+                                    Continue Last Adventure
+                                </button>
+                            )}
                             <button
-                                type="button"
-                                id="image-toggle"
-                                onClick={() => setGenerateImages(!generateImages)}
+                                onClick={handleLoadClick}
                                 disabled={isLoading}
-                                className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-purple-500 ${
-                                    generateImages ? 'bg-green-500' : 'bg-gray-600'
-                                }`}
+                                className="w-full sm:w-auto bg-gray-600 hover:bg-gray-500 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 disabled:opacity-50"
                             >
-                                <span
-                                    className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform duration-300 ${
-                                        generateImages ? 'translate-x-6' : 'translate-x-1'
-                                    }`}
-                                />
+                                Load From File
                             </button>
+                            <input type="file" id="loadGameInput" accept=".json" onChange={handleFileChange} className="hidden" />
                         </div>
-
-                        <div className="pt-4">
-                            <button
-                                type="submit"
-                                disabled={isLoading}
-                                className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 px-4 rounded-lg text-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105"
-                            >
-                                {isLoading ? 'Embarking...' : 'Start Adventure'}
-                            </button>
-                        </div>
-                    </form>
-
-                    <div className="mt-8 pt-6 border-t border-gray-700/50 flex flex-col sm:flex-row justify-center items-center gap-4">
-                        {hasSaveData && (
-                            <button
-                                onClick={onContinueGame}
-                                disabled={isLoading}
-                                className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 disabled:opacity-50"
-                            >
-                                Continue Last Adventure
-                            </button>
-                        )}
-                        <button
-                            onClick={handleLoadClick}
-                            disabled={isLoading}
-                            className="w-full sm:w-auto bg-gray-600 hover:bg-gray-500 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 disabled:opacity-50"
-                        >
-                            Load From File
-                        </button>
-                        <input type="file" id="loadGameInput" accept=".json" onChange={handleFileChange} className="hidden" />
-                    </div>
-                </main>
+                    </main>
+                </div>
             </div>
+            <footer className="w-full text-center py-4 text-gray-500 text-sm flex-shrink-0">
+                Have feedback or suggestions? <a href="mailto:lulueve3@gmail.com" className="text-purple-400 hover:underline">lulueve3@gmail.com</a>
+            </footer>
         </div>
     );
 };
