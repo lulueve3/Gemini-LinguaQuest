@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { AdventureStep, UserSettings, PromptSuggestion, CharacterProfile } from '../types';
 
@@ -8,7 +9,8 @@ if (!process.env.API_KEY) {
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const storyModel = 'gemini-2.5-flash';
-const imageModel = 'imagen-3.0-generate-002';
+// Fix: Updated to the recommended image generation model.
+const imageModel = 'imagen-4.0-generate-001';
 
 const characterSchema = {
     type: Type.OBJECT,

@@ -1,5 +1,8 @@
-// Fix: Changed Dexie import from named to default to ensure correct class inheritance.
-import Dexie, { type Table } from 'dexie';
+
+// Fix: Reverted to a named import for Dexie to ensure correct class inheritance.
+// The default import was not resolving to the class constructor correctly, causing errors
+// where 'version' and 'transaction' methods were not found.
+import { Dexie, type Table } from 'dexie';
 import { UserSettings, CharacterProfile, ChoiceItem, VocabularyItem, SavedVocabularyItem } from '../types';
 
 export interface HistoryStep {

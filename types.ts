@@ -1,3 +1,4 @@
+
 export enum LoadingState {
   IDLE,
   GENERATING_STORY,
@@ -74,4 +75,9 @@ export interface PromptSuggestion {
     worldDescription: string;
     keyCharacters: string[];
     keyEvents: string[];
+}
+
+export interface ImageRecord {
+    id: string; // UUID
+    blob: Blob;
 }

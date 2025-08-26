@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { LoadingState, GameState, AppScreen, UserSettings, VocabularyItem, SavedVocabularyItem, SaveData, ChoiceItem, CharacterProfile } from './types';
+import { LoadingState, GameState, AppScreen, UserSettings, VocabularyItem, SavedVocabularyItem, SaveData, ChoiceItem, CharacterProfile, ImageRecord } from './types';
 import { generateAdventureStep, generateAdventureImage } from './services/geminiService';
 import { db, clearAllData, HistoryStep, SessionData } from './services/dbService';
 import ChoiceButton from './components/ChoiceButton';
@@ -33,6 +33,50 @@ const blobToBase64 = (blob: Blob): Promise<string> => {
     });
 };
 
+
+const InteractiveText: React.FC<{
+    text: string;
+    onWordClick?: (word: string) => void;
+    highlightedWord?: string;
+    lang: 'source' | 'target';
+}> = ({ text, onWordClick, highlightedWord, lang }) => {
+    const segments = text.split(/(\b[\w'-]+\b)/g);
+
+    return (
+        <p className={`text-lg leading-relaxed whitespace-pre-wrap ${lang === 'target' ? 'text-gray-400' : 'text-gray-300'}`}>
+            {segments.map((segment, index) => {
+                const isWord = /\b[\w'-]+\b/.test(segment);
+                const cleanedSegment = segment.toLowerCase();
+                const cleanedHighlightedWord = highlightedWord?.toLowerCase();
+
+                const isHighlighted = isWord && cleanedSegment === cleanedHighlightedWord;
+
+                if (isWord && onWordClick) {
+                    return (
+                        <span
+                            key={index}
+                            onClick={() => onWordClick(segment)}
+                            className={`cursor-pointer transition-colors hover:text-yellow-300 rounded -m-0.5 p-0.5 ${
+                                isHighlighted ? 'font-extrabold text-yellow-300 bg-yellow-900/50' : ''
+                            }`}
+                        >
+                            {segment}
+                        </span>
+                    );
+                } else if (isWord && isHighlighted) {
+                     return (
+                        <span key={index} className="rounded -m-0.5 p-0.5 font-extrabold text-yellow-300 bg-yellow-900/50">
+                            {segment}
+                        </span>
+                     )
+                }
+                return segment;
+            })}
+        </p>
+    );
+};
+
+
 const App: React.FC = () => {
     const [appScreen, setAppScreen] = useState<AppScreen>(AppScreen.SETUP);
     const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
@@ -50,6 +94,7 @@ const App: React.FC = () => {
     const [isImageFullscreen, setIsImageFullscreen] = useState(false);
     const [currentImageUrl, setCurrentImageUrl] = useState<string>('');
     const [showStorageWarning, setShowStorageWarning] = useState(false);
+    const [selectedWordPair, setSelectedWordPair] = useState<{ source: string; target: string } | null>(null);
 
     const gameState = history[currentStepIndex] ?? null;
 
@@ -75,6 +120,9 @@ const App: React.FC = () => {
     useEffect(() => {
         const currentStep = history[currentStepIndex];
         let objectUrl: string | undefined;
+
+        // Deselect word when navigating
+        setSelectedWordPair(null);
 
         const loadImage = async () => {
             if (currentStep && currentStep.imageId) {
@@ -239,25 +287,37 @@ const App: React.FC = () => {
                 
                 await clearAllData();
 
+                // Process history to generate new IDs and prepare DB records
+                const imageRecords: ImageRecord[] = [];
+                const historyForState = parsedData.history.map(step => {
+                    let imageId = '';
+                    if (step.imageUrl && step.imageUrl.startsWith('data:')) {
+                        imageId = crypto.randomUUID();
+                        const blob = base64ToBlob(step.imageUrl, 'image/jpeg');
+                        imageRecords.push({ id: imageId, blob });
+                    }
+                    return {
+                        ...step,
+                        imageId: imageId, // Add the NEW ID here
+                        imageUrl: '', // Clear the base64 string for state
+                    };
+                });
+
+                // Perform DB transaction with the processed data
                 await db.transaction('rw', db.session, db.history, db.images, async () => {
-                    const historyPromises = parsedData.history.map(async (step) => {
-                        let imageId = '';
-                        if (step.imageUrl && step.imageUrl.startsWith('data:')) {
-                            imageId = crypto.randomUUID();
-                            const blob = base64ToBlob(step.imageUrl, 'image/jpeg');
-                            await db.images.add({ id: imageId, blob });
-                        }
-                        const historyStep: HistoryStep = {
-                            story: step.story,
-                            translatedStory: step.translatedStory,
-                            choices: step.choices,
-                            vocabulary: step.vocabulary,
-                            imageId: imageId,
-                            selectedChoiceIndex: step.selectedChoiceIndex,
-                        };
-                        return db.history.add(historyStep);
-                    });
-                    await Promise.all(historyPromises);
+                    if (imageRecords.length > 0) {
+                        await db.images.bulkAdd(imageRecords);
+                    }
+
+                    const historyStepsForDb: HistoryStep[] = historyForState.map(s => ({
+                        story: s.story,
+                        translatedStory: s.translatedStory,
+                        choices: s.choices,
+                        vocabulary: s.vocabulary,
+                        imageId: s.imageId || '',
+                        selectedChoiceIndex: s.selectedChoiceIndex,
+                    }));
+                    await db.history.bulkAdd(historyStepsForDb);
 
                     const sessionData: SessionData = {
                         id: SESSION_ID,
@@ -268,11 +328,10 @@ const App: React.FC = () => {
                     await db.session.put(sessionData);
                 });
 
-                // Set component state from parsed data and switch to game screen
+                // Set component state from the processed data
                 setUserSettings(parsedData.userSettings);
                 setCharacterProfiles(parsedData.characterProfiles);
-                const historyForState = parsedData.history.map(step => ({ ...step, imageUrl: '' }));
-                setHistory(historyForState);
+                setHistory(historyForState); // Use the array that has the correct imageIds
                 setCurrentStepIndex(parsedData.currentStepIndex);
                 setHasSaveData(true);
                 setAppScreen(AppScreen.GAME);
@@ -446,7 +505,7 @@ const App: React.FC = () => {
         if (currentStepIndex > 0) setCurrentStepIndex(prev => prev - 1);
     };
     const handleGoNext = () => {
-        if (currentStepIndex < history.length - 1) setCurrentStepIndex(prev => prev - 1);
+        if (currentStepIndex < history.length - 1) setCurrentStepIndex(prev => prev + 1);
     };
 
     const handleSaveWord = async (item: VocabularyItem) => {
@@ -461,6 +520,23 @@ const App: React.FC = () => {
             };
             await db.notebook.add(newItem);
             setNotebook(prev => [newItem, ...prev].sort((a,b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime()));
+        }
+    };
+
+    const handleSourceWordClick = (word: string) => {
+        const cleanedWord = word.replace(/[.,!?;:"()]/g, '').trim().toLowerCase();
+        if (!cleanedWord) return;
+
+        if (cleanedWord === selectedWordPair?.source.toLowerCase()) {
+            setSelectedWordPair(null);
+            return;
+        }
+
+        const vocabItem = gameState?.vocabulary.find(v => v.word.toLowerCase() === cleanedWord);
+        if (vocabItem) {
+            setSelectedWordPair({ source: vocabItem.word, target: vocabItem.translation });
+        } else {
+            setSelectedWordPair(null);
         }
     };
 
@@ -609,11 +685,20 @@ const App: React.FC = () => {
                                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
                                     <div className="lg:col-span-1">
                                         <h2 className="text-xl font-bold text-purple-300 mb-3">{userSettings?.sourceLanguage}</h2>
-                                        <p className="text-lg leading-relaxed text-gray-300 whitespace-pre-wrap">{gameState?.story}</p>
+                                        <InteractiveText
+                                            text={gameState?.story ?? ''}
+                                            onWordClick={handleSourceWordClick}
+                                            highlightedWord={selectedWordPair?.source}
+                                            lang="source"
+                                        />
                                     </div>
                                     <div className="lg:col-span-1">
                                         <h2 className="text-xl font-bold text-purple-300 mb-3">{userSettings?.targetLanguage}</h2>
-                                        <p className="text-lg leading-relaxed text-gray-400 whitespace-pre-wrap">{gameState?.translatedStory}</p>
+                                        <InteractiveText
+                                            text={gameState?.translatedStory ?? ''}
+                                            highlightedWord={selectedWordPair?.target}
+                                            lang="target"
+                                        />
                                     </div>
                                     <div className="lg:col-span-1">
                                         <h2 className="text-xl font-bold text-purple-300 mb-3">Vocabulary</h2>
@@ -631,6 +716,26 @@ const App: React.FC = () => {
                                                 ))}
                                             </ul>
                                         ) : ( <p className="text-gray-500">No new vocabulary.</p>)}
+
+                                        {selectedWordPair && (
+                                            <div className="mt-6 p-4 bg-gray-800/50 rounded-lg border border-purple-500/30 animate-fade-in">
+                                                <h3 className="text-base font-bold text-purple-300 mb-2">Selected Word</h3>
+                                                <div className="flex items-center justify-between">
+                                                    <p className="text-gray-300">{selectedWordPair.source}: <span className="text-gray-400">{selectedWordPair.target}</span></p>
+                                                    <button 
+                                                        onClick={() => handleSaveWord({ word: selectedWordPair.source, translation: selectedWordPair.target })}
+                                                        disabled={notebook.some(i => i.word.toLowerCase() === selectedWordPair.source.toLowerCase())}
+                                                        title={notebook.some(i => i.word.toLowerCase() === selectedWordPair.source.toLowerCase()) ? "Already in Notebook" : "Save to notebook"}
+                                                        className="text-gray-400 hover:text-purple-400 disabled:text-gray-700 disabled:cursor-not-allowed"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                                                            <path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-3.125L5 18V4z" />
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+
                                     </div>
                                 </div>
 
