@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { AdventureStep, UserSettings, PromptSuggestion, CharacterProfile } from '../types';
 
@@ -212,6 +211,35 @@ export const generateAdventureImage = async (prompt: string): Promise<string | '
         if (errorMessage.includes("RESOURCE_EXHAUSTED") || errorMessage.includes("429")) {
             return 'RATE_LIMITED';
         }
+        return null;
+    }
+};
+
+export const translateWord = async (word: string, sourceLang: string, targetLang: string): Promise<string | null> => {
+    try {
+        const prompt = `Translate the following word from ${sourceLang} to ${targetLang}. Your response must contain ONLY the translated word and nothing else. Do not add any explanation, punctuation, or formatting.
+
+Word: "${word}"`;
+
+        const response = await ai.models.generateContent({
+            model: storyModel,
+            contents: prompt,
+            config: {
+                temperature: 0,
+            },
+        });
+
+        const translatedText = response.text.trim();
+        
+        if (translatedText) {
+             return translatedText.split('\n')[0].trim();
+        }
+       
+        console.warn("Received an empty translation for:", word);
+        return null;
+
+    } catch (error) {
+        console.error(`Error translating word "${word}":`, error);
         return null;
     }
 };

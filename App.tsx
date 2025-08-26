@@ -1,7 +1,6 @@
-
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { LoadingState, GameState, AppScreen, UserSettings, VocabularyItem, SavedVocabularyItem, SaveData, ChoiceItem, CharacterProfile, ImageRecord } from './types';
-import { generateAdventureStep, generateAdventureImage } from './services/geminiService';
+import { generateAdventureStep, generateAdventureImage, translateWord } from './services/geminiService';
 import { db, clearAllData, HistoryStep, SessionData } from './services/dbService';
 import ChoiceButton from './components/ChoiceButton';
 import LoadingSpinner from './components/LoadingSpinner';
@@ -37,40 +36,40 @@ const blobToBase64 = (blob: Blob): Promise<string> => {
 const InteractiveText: React.FC<{
     text: string;
     onWordClick?: (word: string) => void;
-    highlightedWord?: string;
+    highlightedWords?: string[];
     lang: 'source' | 'target';
-}> = ({ text, onWordClick, highlightedWord, lang }) => {
+}> = ({ text, onWordClick, highlightedWords = [], lang }) => {
     const segments = text.split(/(\b[\w'-]+\b)/g);
+    const lowercasedHighlightedWords = useMemo(() => new Set(highlightedWords.map(w => w.toLowerCase())), [highlightedWords]);
 
     return (
         <p className={`text-lg leading-relaxed whitespace-pre-wrap ${lang === 'target' ? 'text-gray-400' : 'text-gray-300'}`}>
             {segments.map((segment, index) => {
                 const isWord = /\b[\w'-]+\b/.test(segment);
+                if (!isWord) {
+                    return segment;
+                }
                 const cleanedSegment = segment.toLowerCase();
-                const cleanedHighlightedWord = highlightedWord?.toLowerCase();
+                const isHighlighted = lowercasedHighlightedWords.has(cleanedSegment);
+                
+                const spanProps = {
+                    key: index,
+                    className: `rounded -m-0.5 p-0.5 ${isHighlighted ? 'font-extrabold text-yellow-300 bg-yellow-900/50' : ''}`
+                };
 
-                const isHighlighted = isWord && cleanedSegment === cleanedHighlightedWord;
-
-                if (isWord && onWordClick) {
+                if (onWordClick) {
                     return (
                         <span
-                            key={index}
+                            {...spanProps}
                             onClick={() => onWordClick(segment)}
-                            className={`cursor-pointer transition-colors hover:text-yellow-300 rounded -m-0.5 p-0.5 ${
-                                isHighlighted ? 'font-extrabold text-yellow-300 bg-yellow-900/50' : ''
-                            }`}
+                            className={`${spanProps.className} cursor-pointer transition-colors hover:text-yellow-300`}
                         >
                             {segment}
                         </span>
                     );
-                } else if (isWord && isHighlighted) {
-                     return (
-                        <span key={index} className="rounded -m-0.5 p-0.5 font-extrabold text-yellow-300 bg-yellow-900/50">
-                            {segment}
-                        </span>
-                     )
                 }
-                return segment;
+                
+                return <span {...spanProps}>{segment}</span>;
             })}
         </p>
     );
@@ -94,7 +93,9 @@ const App: React.FC = () => {
     const [isImageFullscreen, setIsImageFullscreen] = useState(false);
     const [currentImageUrl, setCurrentImageUrl] = useState<string>('');
     const [showStorageWarning, setShowStorageWarning] = useState(false);
-    const [selectedWordPair, setSelectedWordPair] = useState<{ source: string; target: string } | null>(null);
+    const [selectedInteractiveWords, setSelectedInteractiveWords] = useState<VocabularyItem[]>([]);
+    const [isTranslatingWord, setIsTranslatingWord] = useState(false);
+
 
     const gameState = history[currentStepIndex] ?? null;
 
@@ -121,8 +122,8 @@ const App: React.FC = () => {
         const currentStep = history[currentStepIndex];
         let objectUrl: string | undefined;
 
-        // Deselect word when navigating
-        setSelectedWordPair(null);
+        // Deselect words when navigating
+        setSelectedInteractiveWords([]);
 
         const loadImage = async () => {
             if (currentStep && currentStep.imageId) {
@@ -523,20 +524,39 @@ const App: React.FC = () => {
         }
     };
 
-    const handleSourceWordClick = (word: string) => {
+    const handleWordSelection = async (word: string) => {
         const cleanedWord = word.replace(/[.,!?;:"()]/g, '').trim().toLowerCase();
-        if (!cleanedWord) return;
-
-        if (cleanedWord === selectedWordPair?.source.toLowerCase()) {
-            setSelectedWordPair(null);
-            return;
-        }
-
-        const vocabItem = gameState?.vocabulary.find(v => v.word.toLowerCase() === cleanedWord);
-        if (vocabItem) {
-            setSelectedWordPair({ source: vocabItem.word, target: vocabItem.translation });
+        if (!cleanedWord || isTranslatingWord) return;
+    
+        const existingPair = selectedInteractiveWords.find(p => p.word.toLowerCase() === cleanedWord);
+    
+        if (existingPair) {
+            // Word is already selected, so deselect it
+            setSelectedInteractiveWords(prev => prev.filter(p => p.word.toLowerCase() !== cleanedWord));
         } else {
-            setSelectedWordPair(null);
+            // Word is not selected, so find its translation and add it
+            setIsTranslatingWord(true);
+            let translation: string | null = null;
+    
+            // 1. Check current step's vocabulary first
+            const vocabItem = gameState?.vocabulary.find(v => v.word.toLowerCase() === cleanedWord);
+            if (vocabItem) {
+                translation = vocabItem.translation;
+            } else if (userSettings) {
+                // 2. If not found, call API to translate
+                translation = await translateWord(cleanedWord, userSettings.sourceLanguage, userSettings.targetLanguage);
+            }
+            
+            if (translation) {
+                // Use the original casing of the clicked word for display
+                const originalCasingWord = word.replace(/[.,!?;:"()]/g, '').trim();
+                setSelectedInteractiveWords(prev => [...prev, { word: originalCasingWord, translation: translation! }]);
+            } else {
+                console.error("Could not translate word:", cleanedWord);
+                // Optionally: show a temporary error message to the user
+            }
+    
+            setIsTranslatingWord(false);
         }
     };
 
@@ -687,8 +707,8 @@ const App: React.FC = () => {
                                         <h2 className="text-xl font-bold text-purple-300 mb-3">{userSettings?.sourceLanguage}</h2>
                                         <InteractiveText
                                             text={gameState?.story ?? ''}
-                                            onWordClick={handleSourceWordClick}
-                                            highlightedWord={selectedWordPair?.source}
+                                            onWordClick={handleWordSelection}
+                                            highlightedWords={selectedInteractiveWords.map(p => p.word)}
                                             lang="source"
                                         />
                                     </div>
@@ -696,7 +716,7 @@ const App: React.FC = () => {
                                         <h2 className="text-xl font-bold text-purple-300 mb-3">{userSettings?.targetLanguage}</h2>
                                         <InteractiveText
                                             text={gameState?.translatedStory ?? ''}
-                                            highlightedWord={selectedWordPair?.target}
+                                            highlightedWords={selectedInteractiveWords.map(p => p.translation)}
                                             lang="target"
                                         />
                                     </div>
@@ -717,25 +737,31 @@ const App: React.FC = () => {
                                             </ul>
                                         ) : ( <p className="text-gray-500">No new vocabulary.</p>)}
 
-                                        {selectedWordPair && (
-                                            <div className="mt-6 p-4 bg-gray-800/50 rounded-lg border border-purple-500/30 animate-fade-in">
-                                                <h3 className="text-base font-bold text-purple-300 mb-2">Selected Word</h3>
-                                                <div className="flex items-center justify-between">
-                                                    <p className="text-gray-300">{selectedWordPair.source}: <span className="text-gray-400">{selectedWordPair.target}</span></p>
-                                                    <button 
-                                                        onClick={() => handleSaveWord({ word: selectedWordPair.source, translation: selectedWordPair.target })}
-                                                        disabled={notebook.some(i => i.word.toLowerCase() === selectedWordPair.source.toLowerCase())}
-                                                        title={notebook.some(i => i.word.toLowerCase() === selectedWordPair.source.toLowerCase()) ? "Already in Notebook" : "Save to notebook"}
-                                                        className="text-gray-400 hover:text-purple-400 disabled:text-gray-700 disabled:cursor-not-allowed"
-                                                    >
-                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-                                                            <path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-3.125L5 18V4z" />
-                                                        </svg>
-                                                    </button>
-                                                </div>
+                                        {selectedInteractiveWords.length > 0 && (
+                                            <div className="mt-6">
+                                                <h3 className="text-base font-bold text-purple-300 mb-2 flex items-center gap-2">
+                                                    Selected Words
+                                                    {isTranslatingWord && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-100"></div>}
+                                                </h3>
+                                                <ul className="space-y-2 p-4 bg-gray-800/50 rounded-lg border border-purple-500/30 animate-fade-in">
+                                                    {selectedInteractiveWords.map((item, index) => (
+                                                        <li key={`${item.word}-${index}`} className="flex items-center justify-between text-gray-300">
+                                                            <span>{item.word}: <span className="text-gray-400">{item.translation}</span></span>
+                                                            <button 
+                                                                onClick={() => handleSaveWord(item)}
+                                                                disabled={notebook.some(i => i.word.toLowerCase() === item.word.toLowerCase())}
+                                                                title={notebook.some(i => i.word.toLowerCase() === item.word.toLowerCase()) ? "Already in Notebook" : "Save to notebook"}
+                                                                className="text-gray-400 hover:text-purple-400 disabled:text-gray-700 disabled:cursor-not-allowed"
+                                                            >
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                                                                    <path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-3.125L5 18V4z" />
+                                                                </svg>
+                                                            </button>
+                                                        </li>
+                                                    ))}
+                                                </ul>
                                             </div>
                                         )}
-
                                     </div>
                                 </div>
 
