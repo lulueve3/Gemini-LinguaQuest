@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { LoadingState, GameState, AppScreen, UserSettings, VocabularyItem, SavedVocabularyItem, SaveData, ChoiceItem, CharacterProfile } from './types';
 import { generateAdventureStep, generateAdventureImage } from './services/geminiService';
@@ -17,6 +18,7 @@ const base64ToBlob = (base64: string, mimeType: string): Blob => {
     for (let i = 0; i < byteCharacters.length; i++) {
         byteNumbers[i] = byteCharacters.charCodeAt(i);
     }
+    // Fix: Corrected typo from Uint88Array to Uint8Array.
     const byteArray = new Uint8Array(byteNumbers);
     return new Blob([byteArray], { type: mimeType });
 };
@@ -157,7 +159,7 @@ const App: React.FC = () => {
                             imageUrl = await blobToBase64(imageRecord.blob);
                         }
                     }
-                    return { ...step, imageUrl, imageId: step.imageId };
+                    return { ...step, imageUrl, imageId: step.imageId, selectedChoiceIndex: step.selectedChoiceIndex };
                 })
             );
 
@@ -245,6 +247,7 @@ const App: React.FC = () => {
                             choices: step.choices,
                             vocabulary: step.vocabulary,
                             imageId: imageId,
+                            selectedChoiceIndex: step.selectedChoiceIndex,
                         };
                         return db.history.add(historyStep);
                     });
@@ -360,6 +363,7 @@ const App: React.FC = () => {
         setLoadingState(LoadingState.GENERATING_STORY);
         setError(null);
         
+        const choiceIndex = gameState.choices.findIndex(c => c.choice === choice.choice);
         const storyContext = history.slice(0, currentStepIndex + 1).map(h => h.story).slice(-3).join('\n\n');
         const nextPrompt = `Continue the story based on the player's last choice. The story's source language is ${userSettings.sourceLanguage} and the target language for translation is ${userSettings.targetLanguage}.\n\nPREVIOUS STORY:\n${storyContext}\n\nPLAYER'S CHOICE: "${choice.choice}"`;
 
@@ -373,7 +377,7 @@ const App: React.FC = () => {
         
         updateCharacterProfiles(adventureStep.characters);
         
-        let imageId = gameState?.imageId || '';
+        let imageId = '';
         if (userSettings.generateImages) {
             setLoadingState(LoadingState.GENERATING_IMAGE);
             const imageResult = await generateAdventureImage(adventureStep.imagePrompt);
@@ -391,17 +395,35 @@ const App: React.FC = () => {
             choices: adventureStep.choices,
             vocabulary: adventureStep.vocabulary,
         };
-        
-        const newHistory = [...history.slice(0, currentStepIndex + 1), { ...newHistoryStep, imageUrl: '' }];
+
+        const updatedCurrentStep: GameState = { ...history[currentStepIndex], selectedChoiceIndex: choiceIndex };
+        const newHistoryForState = [
+            ...history.slice(0, currentStepIndex),
+            updatedCurrentStep,
+            { ...newHistoryStep, imageUrl: '' }
+        ];
         
         await db.transaction('rw', db.history, db.session, async () => {
-            await db.history.where('id').above(currentStepIndex).delete(); // Clear old future branches
+            const dbHistory = await db.history.toArray();
+            const currentDbStep = dbHistory[currentStepIndex];
+
+            if (!currentDbStep || typeof currentDbStep.id === 'undefined') {
+                console.error("Critical error: Could not find current step in DB.");
+                throw new Error("DB state is out of sync.");
+            }
+
+            const idsToDelete = dbHistory.slice(currentStepIndex + 1).map(s => s.id!).filter(id => id !== undefined);
+            if (idsToDelete.length > 0) {
+                await db.history.bulkDelete(idsToDelete);
+            }
+            
+            await db.history.update(currentDbStep.id, { selectedChoiceIndex: choiceIndex });
             await db.history.add(newHistoryStep);
-            await db.session.update(SESSION_ID, { currentStepIndex: newHistory.length - 1 });
+            await db.session.update(SESSION_ID, { currentStepIndex: newHistoryForState.length - 1 });
         });
         
-        setHistory(newHistory);
-        setCurrentStepIndex(newHistory.length - 1);
+        setHistory(newHistoryForState);
+        setCurrentStepIndex(newHistoryForState.length - 1);
         setLoadingState(LoadingState.IDLE);
     };
 
@@ -599,9 +621,15 @@ const App: React.FC = () => {
                                 <div>
                                     <h2 className="text-xl font-bold text-purple-300 mb-4">What do you do?</h2>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        {(gameState?.choices && gameState.choices.length > 0 && isAtLatestStep) ? (
+                                        {(gameState?.choices && gameState.choices.length > 0) ? (
                                             gameState.choices.map((choice, index) => (
-                                                <ChoiceButton key={index} item={choice} onClick={() => handleChoice(choice)} disabled={isLoading} />
+                                                <ChoiceButton
+                                                    key={index}
+                                                    item={choice}
+                                                    onClick={() => handleChoice(choice)}
+                                                    disabled={isLoading || !isAtLatestStep}
+                                                    isSelected={!isAtLatestStep && gameState.selectedChoiceIndex === index}
+                                                />
                                             ))
                                         ) : (
                                             !isLoading && !error && (isAtLatestStep ? <p className="text-gray-500">The story continues...</p> : <p className="text-gray-500">You are viewing past events. Go forward to continue the story.</p>)

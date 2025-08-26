@@ -44,6 +44,7 @@ export interface GameState {
   imageId?: string; // Used for DB reference
   choices: ChoiceItem[];
   vocabulary: VocabularyItem[];
+  selectedChoiceIndex?: number;
 }
 
 export interface CharacterProfile {

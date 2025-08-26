@@ -9,6 +9,7 @@ export interface HistoryStep {
     choices: ChoiceItem[];
     vocabulary: VocabularyItem[];
     imageId: string; // Foreign key to the image blob
+    selectedChoiceIndex?: number;
 }
 
 export interface ImageRecord {
