@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { SavedVocabularyItem } from '../types';
+import WordScramble from './WordScramble';
+import { filterVocabulary, VocabularyFilter } from '../services/wordFilter';
 
 interface NotebookViewProps {
     notebook: SavedVocabularyItem[];
@@ -55,12 +57,12 @@ const Flashcard: React.FC<{ card: SavedVocabularyItem; onAnswer: (result: 'corre
 
 
     return (
-        <div className="w-full max-w-md mx-auto">
-            <div className="relative h-64 perspective-1000">
+        <div className="w-full max-w-xs mx-auto">
+            <div className="relative w-full h-64 perspective-1000 border border-gray-600 rounded-lg">
                 <div
                     ref={cardRef}
                     style={style}
-                    className="absolute w-full h-full cursor-grab active:cursor-grabbing"
+                    className="absolute inset-0 cursor-grab active:cursor-grabbing select-none"
                     onMouseDown={(e) => handleInteractionStart(e.clientX)}
                     onMouseMove={(e) => (dragStartPos.current ? handleInteractionMove(e.clientX) : null)}
                     onMouseUp={handleInteractionEnd}
@@ -93,10 +95,16 @@ const Flashcard: React.FC<{ card: SavedVocabularyItem; onAnswer: (result: 'corre
 
 const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook, onClose, onDelete }) => {
     const [isReviewing, setIsReviewing] = useState(false);
+    const [isWordScrambleReviewing, setIsWordScrambleReviewing] = useState(false);
     const [currentCardIndex, setCurrentCardIndex] = useState(0);
+    const [filter, setFilter] = useState<VocabularyFilter>('all');
+    const [selectedIds, setSelectedIds] = useState<string[]>([]);
+    const [reviewCards, setReviewCards] = useState<SavedVocabularyItem[]>([]);
+
+    const filteredNotebook = useMemo(() => filterVocabulary(notebook, filter), [notebook, filter]);
 
     const groupedByDate = useMemo(() => {
-        return notebook.reduce((acc, item) => {
+        return filteredNotebook.reduce((acc, item) => {
             const date = new Date(item.dateAdded).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
             if (!acc[date]) {
                 acc[date] = [];
@@ -104,14 +112,27 @@ const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook,
             acc[date].push(item);
             return acc;
         }, {} as Record<string, SavedVocabularyItem[]>);
-    }, [notebook]);
-    
-    const shuffledNotebook = useMemo(() => [...notebook].sort(() => Math.random() - 0.5), [notebook, isReviewing]);
+    }, [filteredNotebook]);
+
+    const selectedNotebook = useMemo(() => {
+        if (selectedIds.length > 0) {
+            return filteredNotebook.filter(item => selectedIds.includes(item.id));
+        }
+        return filteredNotebook;
+    }, [filteredNotebook, selectedIds]);
 
     const startReview = () => {
-        if (notebook.length > 0) {
+        if (selectedNotebook.length > 0) {
+            setReviewCards([...selectedNotebook].sort(() => Math.random() - 0.5));
             setCurrentCardIndex(0);
             setIsReviewing(true);
+        }
+    };
+
+    const startWordScrambleReview = () => {
+        if (selectedNotebook.length > 0) {
+            setReviewCards([...selectedNotebook].sort(() => Math.random() - 0.5));
+            setIsWordScrambleReviewing(true);
         }
     };
     
@@ -171,11 +192,11 @@ const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook,
         input.click();
     }, [notebook, onUpdateNotebook]);
 
-    const handleNextCard = () => {
-        setCurrentCardIndex(prev => (prev + 1) % shuffledNotebook.length);
-    };
+    const handleNextCard = useCallback(() => {
+        setCurrentCardIndex(prev => (prev + 1) % reviewCards.length);
+    }, [reviewCards.length]);
 
-    const handleAnswer = (cardId: string, result: 'correct' | 'incorrect') => {
+    const updateCounts = useCallback((cardId: string, result: 'correct' | 'incorrect') => {
         const newNotebook = notebook.map(item => {
             if (item.id === cardId) {
                 return {
@@ -187,8 +208,28 @@ const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook,
             return item;
         });
         onUpdateNotebook(newNotebook);
+    }, [notebook, onUpdateNotebook]);
+
+    const handleAnswer = (cardId: string, result: 'correct' | 'incorrect') => {
+        updateCounts(cardId, result);
         handleNextCard();
     };
+
+    const handleScrambleAnswer = (cardId: string, result: 'correct' | 'incorrect') => {
+        updateCounts(cardId, result);
+    };
+
+    const toggleSelect = (id: string) => {
+        setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    };
+
+    const selectAll = () => {
+        setSelectedIds(filteredNotebook.map(item => item.id));
+    };
+
+    useEffect(() => {
+        setSelectedIds([]);
+    }, [filter]);
     
     const getPerformanceColor = (item: SavedVocabularyItem) => {
         const { correctCount, incorrectCount } = item;
@@ -201,6 +242,47 @@ const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook,
         return 'text-gray-300';
     };
 
+    useEffect(() => {
+        const keyHandler = (e: KeyboardEvent) => {
+            if (e.key === 'ArrowRight') {
+                if (isReviewing) {
+                    e.preventDefault();
+                    handleNextCard();
+                }
+            }
+        };
+        window.addEventListener('keydown', keyHandler);
+        return () => window.removeEventListener('keydown', keyHandler);
+    }, [isReviewing, handleNextCard]);
+
+    useEffect(() => {
+        const body = document.body;
+        if (isReviewing || isWordScrambleReviewing) {
+            body.style.userSelect = 'none';
+        } else {
+            body.style.userSelect = '';
+        }
+        return () => { body.style.userSelect = ''; };
+    }, [isReviewing, isWordScrambleReviewing]);
+
+
+    if (isWordScrambleReviewing) {
+        return (
+            <div className="p-4 md:p-8">
+                <h2 className="text-3xl font-bold text-purple-300 mb-2 text-center">Word Scramble Review</h2>
+                {reviewCards.length > 0 ? (
+                    <WordScramble
+                        cards={reviewCards}
+                        onAnswer={handleScrambleAnswer}
+                        onComplete={() => setIsWordScrambleReviewing(false)}
+                    />
+                ) : (
+                    <p className="text-center text-gray-500">No cards to review.</p>
+                )}
+                <button onClick={() => setIsWordScrambleReviewing(false)} className="mt-8 block mx-auto text-gray-400 hover:text-white">Exit Review</button>
+            </div>
+        );
+    }
 
     if (isReviewing) {
         return (
@@ -210,8 +292,8 @@ const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook,
                     <p>Click the card to see the translation.</p>
                     <p><strong>Swipe right if you remembered, swipe left if you didn't.</strong></p>
                 </div>
-                {shuffledNotebook.length > 0 ? (
-                   <Flashcard card={shuffledNotebook[currentCardIndex]} onAnswer={(result) => handleAnswer(shuffledNotebook[currentCardIndex].id, result)} />
+                {reviewCards.length > 0 ? (
+                   <Flashcard card={reviewCards[currentCardIndex]} onAnswer={(result) => handleAnswer(reviewCards[currentCardIndex].id, result)} />
                 ) : (
                     <p className="text-center text-gray-500">No cards to review.</p>
                 )}
@@ -232,24 +314,49 @@ const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook,
                 <button onClick={handleExport} className="flex-1 bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition-colors">Export Notebook</button>
             </div>
 
-            {notebook.length > 0 ? (
+            <div className="flex items-center gap-3 mb-4">
+                <label className="text-sm text-gray-400">Filter:</label>
+                <select value={filter} onChange={(e) => setFilter(e.target.value as VocabularyFilter)} className="bg-gray-800 text-gray-200 p-1 rounded">
+                    <option value="all">All</option>
+                    <option value="today">Today</option>
+                    <option value="remembered">Remembered</option>
+                    <option value="normal">Normal</option>
+                    <option value="difficult">Difficult</option>
+                </select>
+                <button onClick={selectAll} className="bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded">Select All</button>
+            </div>
+
+            {filteredNotebook.length > 0 ? (
                  <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-4">
-                    <button
-                        onClick={startReview}
-                        className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-4 rounded-lg transition-colors"
-                    >
-                       Review with Flashcards ({notebook.length} terms)
-                    </button>
-                    
+                    <div className="flex flex-col gap-3">
+                        <button
+                            onClick={startReview}
+                            disabled={selectedNotebook.length === 0}
+                            className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors"
+                        >
+                           Review with Flashcards ({selectedNotebook.length} terms)
+                        </button>
+                        <button
+                            onClick={startWordScrambleReview}
+                            disabled={selectedNotebook.length === 0}
+                            className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors"
+                        >
+                           Review with Word Scramble ({selectedNotebook.length} terms)
+                        </button>
+                    </div>
+
                     {Object.entries(groupedByDate).map(([date, items]) => (
                         <div key={date}>
                             <h3 className="text-lg font-semibold text-gray-400 mb-2">{date}</h3>
                             <ul className="bg-gray-800/50 rounded-lg p-4 space-y-3">
                                 {items.map((item) => (
                                     <li key={item.id} className="flex justify-between items-center">
-                                        <div>
-                                            <span className={`font-bold transition-colors ${getPerformanceColor(item)}`}>{item.word}</span>
-                                            <span className="text-gray-400"> - {item.translation}</span>
+                                        <div className="flex items-center gap-2">
+                                            <input type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => toggleSelect(item.id)} />
+                                            <div>
+                                                <span className={`font-bold transition-colors ${getPerformanceColor(item)}`}>{item.word}</span>
+                                                <span className="text-gray-400"> - {item.translation}</span>
+                                            </div>
                                         </div>
                                         <div className="flex items-center gap-4">
                                             <span className="text-xs text-gray-500 font-mono">
