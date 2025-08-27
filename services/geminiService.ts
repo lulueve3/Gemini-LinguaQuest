@@ -215,11 +215,51 @@ export const generateAdventureImage = async (prompt: string): Promise<string | '
     }
 };
 
-export const translateWord = async (word: string, sourceLang: string, targetLang: string): Promise<string | null> => {
+export const translateWord = async (
+    word: string, 
+    sourceLang: string, 
+    targetLang: string,
+    sourceText?: string,
+    targetText?: string
+): Promise<string | null> => {
     try {
-        const prompt = `Translate the following word from ${sourceLang} to ${targetLang}. Your response must contain ONLY the translated word and nothing else. Do not add any explanation, punctuation, or formatting.
+        let prompt: string;
+
+        if (sourceText && targetText) {
+            prompt = `You are a highly precise linguistic tool. Your task is to find the exact corresponding word or phrase from a translated text.
+You will be given:
+1. A source language: ${sourceLang}
+2. A target language: ${targetLang}
+3. A word or short phrase from the source text: "${word}"
+4. The full source text.
+5. The full translated text.
+
+Your mission is to identify the exact substring in the translated text that corresponds to the given word/phrase from the source text.
+
+Rules:
+- Your response MUST be ONLY the identified substring from the translated text.
+- Do not provide any explanation, commentary, or extra formatting.
+- If you cannot find a clear, direct correspondence, return the single best-effort word translation of "${word}".
+
+---
+
+Source Text:
+"""
+${sourceText}
+"""
+
+Translated Text:
+"""
+${targetText}
+"""
+---
+
+Your response:`;
+        } else {
+            prompt = `Translate the following word from ${sourceLang} to ${targetLang}. Your response must contain ONLY the translated word and nothing else. Do not add any explanation, punctuation, or formatting.
 
 Word: "${word}"`;
+        }
 
         const response = await ai.models.generateContent({
             model: storyModel,
