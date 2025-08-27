@@ -1,86 +1,88 @@
 // services/ttsService.ts
 
+// A reference to the synthesis instance
+const synth = window.speechSynthesis;
 let voices: SpeechSynthesisVoice[] = [];
 
-const loadVoices = () => {
-    // Filter to get high-quality, local voices if possible
-    const allVoices = window.speechSynthesis.getVoices();
-    voices = allVoices.filter(voice => voice.localService);
-    if (voices.length === 0) {
-        voices = allVoices; // Fallback to all voices if no local ones are available
+// This is a common trick to get voices on some browsers like Chrome.
+const populateVoiceList = () => {
+    voices = synth.getVoices();
+    if (voices.length === 0 && synth.onvoiceschanged !== undefined) {
+        synth.onvoiceschanged = populateVoiceList;
     }
 };
+populateVoiceList();
 
-// Voices are often loaded asynchronously.
-if (typeof window !== 'undefined' && window.speechSynthesis) {
-    if (window.speechSynthesis.onvoiceschanged !== undefined) {
-        window.speechSynthesis.onvoiceschanged = loadVoices;
-    }
-    loadVoices(); // Initial load attempt
-}
-
-
-const findBestVoice = (lang: string): SpeechSynthesisVoice | null => {
+// Function to find the best matching voice for a given language code
+const findVoice = (langCode: string): SpeechSynthesisVoice | null => {
     if (voices.length === 0) {
-        loadVoices();
+        console.warn("Speech synthesis voices not loaded yet.");
+        populateVoiceList(); // try again
     }
-    if (voices.length === 0) return null; // Still no voices
+    // Try for a perfect match first (e.g., "en-US")
+    let voice = voices.find(v => v.lang === langCode);
+    if (voice) return voice;
 
-    // BCP 47 language code (e.g., 'en-US', 'vi-VN')
-    const langPrefix = lang.split('-')[0];
-
-    // 1. Exact match
-    let perfectMatch = voices.find(v => v.lang === lang);
-    if (perfectMatch) return perfectMatch;
-    
-    // 2. Language prefix match (e.g., 'en' for 'en-US') that is also default for the locale
-    let defaultMatch = voices.find(v => v.lang.startsWith(langPrefix) && v.default);
-    if (defaultMatch) return defaultMatch;
-
-    // 3. Any language prefix match
-    let prefixMatch = voices.find(v => v.lang.startsWith(langPrefix));
-    if (prefixMatch) return prefixMatch;
-
-    return null;
+    // If no perfect match, try a generic match (e.g., "en")
+    const lang = langCode.split('-')[0];
+    voice = voices.find(v => v.lang.startsWith(lang));
+    return voice || null;
 };
+
 
 export const speak = (
-    text: string, 
-    lang: string, 
-    onEnd: () => void, 
+    text: string,
+    langCode: string,
+    onEnd: () => void,
     onError: () => void
 ) => {
-    if (typeof window === 'undefined' || !window.speechSynthesis) {
-        console.error("Text-to-Speech is not supported by this browser.");
+    if (!synth) {
+        console.error("Browser does not support speech synthesis.");
         onError();
         return;
     }
-  
-    // Stop any currently speaking utterance before starting a new one.
-    window.speechSynthesis.cancel();
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    const voice = findBestVoice(lang);
-  
-    if (voice) {
-        utterance.voice = voice;
-    } else {
-        // Fallback to the browser's default for the specified language tag.
-        utterance.lang = lang;
-        console.warn(`No specific voice found for lang '${lang}'. Using browser default.`);
+    // This is a workaround for a bug in some browsers (like Chrome) where speech synthesis
+    // can get stuck in a paused state after a long period of inactivity.
+    if (synth.paused) {
+        synth.resume();
     }
+    
+    // Cancel any ongoing speech before starting a new one.
+    synth.cancel();
 
-    utterance.onend = onEnd;
-    utterance.onerror = (e) => {
-        console.error("Speech synthesis error:", e);
-        onError();
-    };
-  
-    window.speechSynthesis.speak(utterance);
+    // Small timeout to ensure cancel has time to process on all browsers.
+    setTimeout(() => {
+        const utterance = new SpeechSynthesisUtterance(text);
+        
+        utterance.onend = () => {
+            onEnd();
+        };
+
+        utterance.onerror = (event) => {
+            console.error("Speech synthesis error:", event);
+            onError();
+        };
+
+        const voice = findVoice(langCode);
+        if (voice) {
+            utterance.voice = voice;
+        } else {
+            console.warn(`No specific voice found for language code: ${langCode}. Using browser default.`);
+            utterance.lang = langCode;
+        }
+        
+        utterance.pitch = 1;
+        utterance.rate = 1;
+        utterance.volume = 1;
+
+        synth.speak(utterance);
+    }, 100); 
 };
 
+
 export const stop = () => {
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
+    if (synth) {
+        synth.cancel();
     }
 };

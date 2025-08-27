@@ -103,6 +103,24 @@ const InteractiveText: React.FC<{
     );
 };
 
+const langToCode = (langName: string): string => {
+    const lowerCaseLang = langName.toLowerCase().trim();
+    const map: { [key: string]: string } = {
+        'english': 'en-US',
+        'vietnamese': 'vi-VN',
+        'spanish': 'es-ES',
+        'french': 'fr-FR',
+        'german': 'de-DE',
+        'japanese': 'ja-JP',
+        'chinese': 'zh-CN',
+        'korean': 'ko-KR',
+        'russian': 'ru-RU',
+        'italian': 'it-IT',
+        'portuguese': 'pt-BR',
+    };
+    return map[lowerCaseLang] || 'en-US';
+};
+
 
 const App: React.FC = () => {
     const [appScreen, setAppScreen] = useState<AppScreen>(AppScreen.SETUP);
@@ -262,7 +280,8 @@ const App: React.FC = () => {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `gemini-linguaquest-save-${Date.now()}.json`;
+            const genreSlug = (userSettings.genre || 'adventure').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+            a.download = `gemini-linguaquest-save-${genreSlug}-${Date.now()}.json`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -641,13 +660,6 @@ const App: React.FC = () => {
         }
     };
 
-    const langToCode: { [key: string]: string } = useMemo(() => ({
-        'english': 'en-US', 'vietnamese': 'vi-VN', 'spanish': 'es-ES',
-        'french': 'fr-FR', 'german': 'de-DE', 'japanese': 'ja-JP',
-        'korean': 'ko-KR', 'chinese': 'zh-CN', 'italian': 'it-IT',
-        'russian': 'ru-RU',
-    }), []);
-
     const handleSpeak = (type: 'story' | 'word', key: string, text: string, langName: string) => {
         const currentSpeakingKey = speakingState?.type === type && speakingState?.key === key;
         
@@ -655,8 +667,8 @@ const App: React.FC = () => {
             stop();
             setSpeakingState(null);
         } else {
-            const langCode = langToCode[langName.toLowerCase()] || 'en-US';
             setSpeakingState({ type, key });
+            const langCode = langToCode(langName);
             speak(text, langCode, () => setSpeakingState(null), () => setSpeakingState(null));
         }
     };
@@ -864,17 +876,22 @@ const App: React.FC = () => {
                                                 <ul className="space-y-2 p-4 bg-gray-800/50 rounded-lg border border-purple-500/30 animate-fade-in">
                                                     {selectedInteractiveWords.map((item, index) => (
                                                         <li key={`${item.word}-${index}`} className="flex items-center justify-between text-gray-300">
-                                                            <span>
-                                                                {item.word}: <span className="text-gray-400">{item.translation}</span>
-                                                                <sup className="ml-0.5 text-xs font-bold text-yellow-300 opacity-80 -top-1 relative">{index + 1}</sup>
-                                                            </span>
-                                                            <button 
-                                                                onClick={() => handleSaveWord(item)}
-                                                                disabled={notebookWordsSet.has(item.word.toLowerCase())}
-                                                                title={notebookWordsSet.has(item.word.toLowerCase()) ? "Already in Notebook" : "Save to notebook"}
-                                                                className="text-gray-400 hover:text-purple-400 disabled:text-gray-700 disabled:cursor-not-allowed"
-                                                            >
-                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                                                            <div className="flex items-center gap-2">
+                                                                <button 
+                                                                    onClick={() => handleSpeak('word', `selected-${item.word}`, item.word, userSettings?.sourceLanguage ?? 'English')}
+                                                                    className="text-gray-400 hover:text-purple-300"
+                                                                    title={`Pronounce "${item.word}"`}
+                                                                >
+                                                                    {speakingState?.type === 'word' && speakingState?.key === `selected-${item.word}` ? (
+                                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                                                                    ) : (
+                                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                                                                    )}
+                                                                </button>
+                                                                <span><span className="font-bold">{item.word}</span>: <span className="text-gray-400">{item.translation}</span></span>
+                                                            </div>
+                                                            <button onClick={() => handleSaveWord(item)} title="Save to notebook" className="text-gray-500 hover:text-purple-400 disabled:text-gray-700 disabled:cursor-not-allowed" disabled={notebookWordsSet.has(item.word.toLowerCase())}>
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                                                                     <path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-3.125L5 18V4z" />
                                                                 </svg>
                                                             </button>
@@ -885,23 +902,19 @@ const App: React.FC = () => {
                                         )}
                                     </div>
                                 </div>
-
-                                <div>
-                                    <h2 className="text-xl font-bold text-purple-300 mb-4">What do you do?</h2>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        {(gameState?.choices && gameState.choices.length > 0) ? (
-                                            gameState.choices.map((choice, index) => (
-                                                <ChoiceButton
-                                                    key={index}
-                                                    item={choice}
-                                                    onClick={() => handleChoice(choice)}
-                                                    disabled={isLoading || !isAtLatestStep}
-                                                    isSelected={!isAtLatestStep && gameState.selectedChoiceIndex === index}
-                                                />
-                                            ))
-                                        ) : (
-                                            !isLoading && !error && (isAtLatestStep ? <p className="text-gray-500">The story continues...</p> : <p className="text-gray-500">You are viewing past events. Go forward to continue the story.</p>)
-                                        )}
+                                
+                                <div className="mt-8">
+                                    <h2 className="text-2xl font-bold text-center text-purple-300 mb-6">Your Next Move</h2>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {gameState?.choices.map((item, index) => (
+                                            <ChoiceButton
+                                                key={index}
+                                                item={item}
+                                                onClick={() => handleChoice(item)}
+                                                disabled={isLoading || !isAtLatestStep}
+                                                isSelected={gameState.selectedChoiceIndex === index}
+                                            />
+                                        ))}
                                     </div>
                                 </div>
                             </div>
@@ -911,33 +924,19 @@ const App: React.FC = () => {
             </div>
             {isImageFullscreen && currentImageUrl && (
                 <div 
-                    className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4 animate-fade-in"
+                    className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4 animate-fade-in"
                     onClick={() => setIsImageFullscreen(false)}
-                    role="dialog"
-                    aria-modal="true"
-                    aria-label="Fullscreen image view"
                 >
+                    <img src={currentImageUrl} alt="Fullscreen Adventure Scene" className="max-h-full max-w-full object-contain" />
                     <button 
-                        className="absolute top-4 right-4 text-white bg-black/50 p-2 rounded-full hover:bg-black/75 transition-colors z-10"
-                        aria-label="Close fullscreen view"
                         onClick={() => setIsImageFullscreen(false)}
+                        className="absolute top-4 right-4 text-white bg-black/50 p-2 rounded-full hover:bg-black/70"
+                        aria-label="Close fullscreen view"
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                     </button>
-                    <img 
-                        src={currentImageUrl} 
-                        alt="Adventure Scene Fullscreen" 
-                        className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
-                        onClick={(e) => e.stopPropagation()}
-                    />
-                </div>
-            )}
-            {translatingWord && (
-                <div className="fixed bottom-5 left-1/2 -translate-x-1/2 bg-gray-700 text-white py-2 px-5 rounded-lg shadow-lg z-50 animate-fade-in flex items-center gap-3">
-                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-100"></div>
-                     <span>Translating "{translatingWord}"...</span>
                 </div>
             )}
         </div>

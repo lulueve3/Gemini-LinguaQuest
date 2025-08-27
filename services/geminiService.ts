@@ -103,6 +103,21 @@ const suggestionSchema = {
     required: ["prompt", "genre", "worldDescription", "keyCharacters", "keyEvents"]
 };
 
+const inspirationSchema = {
+    type: Type.OBJECT,
+    properties: {
+        ideas: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING, description: "A single, short, creative idea for a text-based RPG." },
+            description: "An array of exactly 8 diverse and concise ideas for a text-based RPG, inspired by various anime/manga genres.",
+            minItems: 8,
+            maxItems: 8
+        }
+    },
+    required: ["ideas"]
+};
+
+
 const systemInstruction = `You are a multilingual storyteller and language tutor creating a text-based adventure game. Your goal is to generate an immersive narrative that helps users learn a new language. 
 You will be provided with a list of known characters and their descriptions. You MUST use these descriptions when generating the story and especially the image prompt to ensure visual consistency for all characters and monsters.
 When you introduce new characters or monsters, or if their appearance changes, you must provide their descriptions in the 'characters' array of your response.
@@ -187,6 +202,41 @@ export const generatePromptSuggestion = async (animeName: string): Promise<Promp
         return null;
     }
 };
+
+export const generateInspirationIdeas = async (): Promise<string[] | null> => {
+    try {
+        const prompt = `Generate a list of exactly 8 diverse and creative ideas for a text-based RPG. The list MUST contain a specific mix of two types of ideas:
+1. **4 ideas** based on popular but varied anime or manga series. Frame them as a unique role-playing scenario for the player. Each of these ideas MUST clearly state the name of the anime/manga it is based on. For example: 'Survive as a scout in Attack on Titan' or 'A rookie devil hunter in the world of Chainsaw Man'.
+2. **4 ideas** that are completely original concepts based on genres (e.g., 'A bio-punk detective solving crimes in a city of mutated plants', 'A solar-punk pirate sailing the cosmic winds'). These should be creative and not reference any existing anime/manga.
+Do not repeat the examples given. Each idea must be a short, punchy phrase suitable for a button label. Ensure high variety in the suggestions.`;
+        
+        const response = await ai.models.generateContent({
+            model: storyModel,
+            contents: prompt,
+            config: {
+                systemInstruction: "You are a creative assistant that provides a JSON object containing a list of exactly 8 short RPG ideas. You must respond ONLY with a valid JSON object matching the provided schema.",
+                responseMimeType: "application/json",
+                responseSchema: inspirationSchema,
+                temperature: 0.9,
+            }
+        });
+
+        const jsonText = response.text.trim();
+        const parsedJson = JSON.parse(jsonText);
+
+        if (Array.isArray(parsedJson.ideas) && parsedJson.ideas.length === 8) {
+            return parsedJson.ideas as string[];
+        } else {
+            console.error("Invalid JSON structure for inspiration ideas:", parsedJson);
+            return null;
+        }
+
+    } catch (error) {
+        console.error("Error generating inspiration ideas:", error);
+        return null;
+    }
+}
+
 
 export const generateAdventureImage = async (prompt: string): Promise<string | 'RATE_LIMITED' | null> => {
     try {
