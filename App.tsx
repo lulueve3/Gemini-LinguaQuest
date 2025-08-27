@@ -607,7 +607,7 @@ const App: React.FC = () => {
     const renderScreen = () => {
         switch (appScreen) {
             case AppScreen.NOTEBOOK:
-                return <NotebookView notebook={notebook} onUpdateNotebook={handleUpdateNotebook} onClose={() => setAppScreen(AppScreen.GAME)} onDelete={handleDeleteFromNotebook} />;
+                return <NotebookView notebook={notebook} targetLanguage={userSettings?.targetLanguage || ''} onUpdateNotebook={handleUpdateNotebook} onClose={() => setAppScreen(AppScreen.GAME)} onDelete={handleDeleteFromNotebook} />;
             case AppScreen.GAME:
                 if (!gameState || !userSettings) {
                     return (

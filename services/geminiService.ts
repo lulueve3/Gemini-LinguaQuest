@@ -117,6 +117,15 @@ const inspirationSchema = {
     required: ["ideas"]
 };
 
+const grammarCheckSchema = {
+    type: Type.OBJECT,
+    properties: {
+        isCorrect: { type: Type.BOOLEAN },
+        feedback: { type: Type.STRING }
+    },
+    required: ["isCorrect", "feedback"]
+};
+
 
 const systemInstruction = `You are a multilingual storyteller and language tutor creating a text-based adventure game. Your goal is to generate an immersive narrative that helps users learn a new language. 
 You will be provided with a list of known characters and their descriptions. You MUST use these descriptions when generating the story and especially the image prompt to ensure visual consistency for all characters and monsters.
@@ -346,6 +355,32 @@ Word: "${word}"`;
 
     } catch (error) {
         console.error(`Error translating word "${word}":`, error);
+        throw new Error(getApiErrorMessage(error));
+    }
+};
+
+export const checkSentenceGrammar = async (
+    sentence: string,
+    word: string,
+    language: string
+): Promise<{ isCorrect: boolean; feedback: string }> => {
+    try {
+        const prompt = `You are a grammar checker for ${language}. Determine if the following sentence is grammatically correct and uses the word "${word}" appropriately. Respond in JSON.\nSentence: "${sentence}"`;
+
+        const response = await ai.models.generateContent({
+            model: storyModel,
+            contents: prompt,
+            config: {
+                temperature: 0,
+                responseMimeType: "application/json",
+                responseSchema: grammarCheckSchema,
+            },
+        });
+
+        const data = JSON.parse(response.text.trim());
+        return { isCorrect: !!data.isCorrect, feedback: data.feedback || '' };
+    } catch (error) {
+        console.error('Error checking grammar:', error);
         throw new Error(getApiErrorMessage(error));
     }
 };

@@ -1,11 +1,13 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { SavedVocabularyItem } from '../types';
+import { checkSentenceGrammar } from '../services/geminiService';
 
 interface NotebookViewProps {
     notebook: SavedVocabularyItem[];
     onUpdateNotebook: (notebook: SavedVocabularyItem[]) => void;
     onClose: () => void;
     onDelete: (id: string) => void;
+    targetLanguage: string;
 }
 
 const Flashcard: React.FC<{ card: SavedVocabularyItem; onAnswer: (result: 'correct' | 'incorrect') => void }> = ({ card, onAnswer }) => {
@@ -91,9 +93,13 @@ const Flashcard: React.FC<{ card: SavedVocabularyItem; onAnswer: (result: 'corre
 };
 
 
-const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook, onClose, onDelete }) => {
+const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook, onClose, onDelete, targetLanguage }) => {
     const [isReviewing, setIsReviewing] = useState(false);
     const [currentCardIndex, setCurrentCardIndex] = useState(0);
+    const [practiceItem, setPracticeItem] = useState<SavedVocabularyItem | null>(null);
+    const [sentence, setSentence] = useState('');
+    const [feedback, setFeedback] = useState<string | null>(null);
+    const [checking, setChecking] = useState(false);
 
     const groupedByDate = useMemo(() => {
         return notebook.reduce((acc, item) => {
@@ -201,6 +207,50 @@ const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook,
         return 'text-gray-300';
     };
 
+    const handleCheckGrammar = async () => {
+        if (!practiceItem || !sentence.trim()) return;
+        setChecking(true);
+        setFeedback(null);
+        try {
+            const result = await checkSentenceGrammar(sentence, practiceItem.translation, targetLanguage);
+            setFeedback(result.feedback);
+            const updated = notebook.map(item => {
+                if (item.id === practiceItem.id) {
+                    return {
+                        ...item,
+                        correctCount: item.correctCount + (result.isCorrect ? 3 : 0),
+                        incorrectCount: item.incorrectCount + (result.isCorrect ? 0 : 1),
+                    };
+                }
+                return item;
+            });
+            onUpdateNotebook(updated);
+        } catch (err) {
+            console.error('Grammar check failed', err);
+            setFeedback('Grammar check failed. Please try again.');
+        } finally {
+            setChecking(false);
+        }
+    };
+
+    const practiceModal = practiceItem && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+            <div className="bg-gray-800 p-6 rounded-lg w-full max-w-md">
+                <h3 className="text-xl font-bold text-purple-300 mb-4">Write a sentence using '{practiceItem.translation}'</h3>
+                <textarea
+                    value={sentence}
+                    onChange={(e) => setSentence(e.target.value)}
+                    className="w-full h-24 p-2 rounded bg-gray-700 text-white"
+                />
+                {feedback && <p className="mt-2 text-sm text-gray-300">{feedback}</p>}
+                <div className="flex justify-end gap-2 mt-4">
+                    <button onClick={() => { setPracticeItem(null); setSentence(''); setFeedback(null); }} className="text-gray-400 hover:text-white">Close</button>
+                    <button onClick={handleCheckGrammar} disabled={checking} className="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg">{checking ? 'Checking...' : 'Check Grammar'}</button>
+                </div>
+            </div>
+        </div>
+    );
+
 
     if (isReviewing) {
         return (
@@ -216,6 +266,7 @@ const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook,
                     <p className="text-center text-gray-500">No cards to review.</p>
                 )}
                 <button onClick={() => setIsReviewing(false)} className="mt-8 block mx-auto text-gray-400 hover:text-white">Exit Review</button>
+                {practiceModal}
             </div>
         )
     }
@@ -255,6 +306,7 @@ const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook,
                                             <span className="text-xs text-gray-500 font-mono">
                                                 <span title="Times remembered" className="text-green-500">✓{item.correctCount}</span> | <span title="Times not remembered" className="text-red-500">✗{item.incorrectCount}</span>
                                             </span>
+                                            <button onClick={() => { setPracticeItem(item); setSentence(''); setFeedback(null); }} className="text-blue-400 hover:text-blue-300 text-xs font-sans uppercase tracking-wider">Practice</button>
                                             <button onClick={() => onDelete(item.id)} className="text-red-400 hover:text-red-300 text-xs font-sans uppercase tracking-wider">Remove</button>
                                         </div>
                                     </li>
@@ -266,6 +318,7 @@ const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook,
             ) : (
                 <p className="text-center text-gray-400 py-12">Your notebook is empty. Save new words from your adventure!</p>
             )}
+            {practiceModal}
         </div>
     );
 };
