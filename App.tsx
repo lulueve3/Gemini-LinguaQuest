@@ -508,6 +508,7 @@ const App: React.FC = () => {
         const newItem: SavedVocabularyItem = {
             ...item, id: crypto.randomUUID(), dateAdded: new Date().toISOString(),
             correctCount: 0, incorrectCount: 0,
+            sourceLanguage: userSettings.sourceLanguage,
         };
         try {
             await db.notebook.add(newItem);
@@ -563,6 +564,7 @@ const App: React.FC = () => {
         const newItems: SavedVocabularyItem[] = wordsToSave.map(item => ({
             ...item, id: crypto.randomUUID(), dateAdded: new Date().toISOString(),
             correctCount: 0, incorrectCount: 0,
+            sourceLanguage: userSettings?.sourceLanguage || '',
         }));
         try {
             await db.notebook.bulkAdd(newItems);
@@ -607,7 +609,7 @@ const App: React.FC = () => {
     const renderScreen = () => {
         switch (appScreen) {
             case AppScreen.NOTEBOOK:
-                return <NotebookView notebook={notebook} onUpdateNotebook={handleUpdateNotebook} onClose={() => setAppScreen(AppScreen.GAME)} onDelete={handleDeleteFromNotebook} />;
+                return <NotebookView notebook={notebook} targetLanguage={userSettings?.targetLanguage || ''} sourceLanguage={userSettings?.sourceLanguage || ''} onUpdateNotebook={handleUpdateNotebook} onClose={() => setAppScreen(AppScreen.GAME)} onDelete={handleDeleteFromNotebook} />;
             case AppScreen.GAME:
                 if (!gameState || !userSettings) {
                     return (

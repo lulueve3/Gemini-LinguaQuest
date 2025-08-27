@@ -36,6 +36,7 @@ export interface SavedVocabularyItem extends VocabularyItem {
     dateAdded: string;
     correctCount: number;
     incorrectCount: number;
+    sourceLanguage: string;
 }
 
 export interface GameState {

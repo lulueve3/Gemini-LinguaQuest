@@ -1,11 +1,14 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { SavedVocabularyItem } from '../types';
+import { checkSentenceGrammar, getExampleSentences } from '../services/geminiService';
 
 interface NotebookViewProps {
     notebook: SavedVocabularyItem[];
     onUpdateNotebook: (notebook: SavedVocabularyItem[]) => void;
     onClose: () => void;
     onDelete: (id: string) => void;
+    targetLanguage: string;
+    sourceLanguage: string;
 }
 
 const Flashcard: React.FC<{ card: SavedVocabularyItem; onAnswer: (result: 'correct' | 'incorrect') => void }> = ({ card, onAnswer }) => {
@@ -91,12 +94,41 @@ const Flashcard: React.FC<{ card: SavedVocabularyItem; onAnswer: (result: 'corre
 };
 
 
-const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook, onClose, onDelete }) => {
+const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook, onClose, onDelete, targetLanguage, sourceLanguage }) => {
+    const [filter, setFilter] = useState<'all' | 'today' | 'remembered' | 'difficult'>('all');
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
     const [isReviewing, setIsReviewing] = useState(false);
+    const [isWriting, setIsWriting] = useState(false);
     const [currentCardIndex, setCurrentCardIndex] = useState(0);
+    const [reviewList, setReviewList] = useState<SavedVocabularyItem[]>([]);
+
+    const [writingList, setWritingList] = useState<SavedVocabularyItem[]>([]);
+    const [currentWritingIndex, setCurrentWritingIndex] = useState(0);
+    const [sentence, setSentence] = useState('');
+    const [feedback, setFeedback] = useState<string | null>(null);
+    const [correction, setCorrection] = useState<string | null>(null);
+    const [examples, setExamples] = useState<string[]>([]);
+    const [checking, setChecking] = useState(false);
+
+    const filteredNotebook = useMemo(() => {
+        const todayStr = new Date().toDateString();
+        return notebook.filter(item => {
+            switch (filter) {
+                case 'today':
+                    return new Date(item.dateAdded).toDateString() === todayStr;
+                case 'remembered':
+                    return item.correctCount > item.incorrectCount;
+                case 'difficult':
+                    return item.incorrectCount > item.correctCount;
+                default:
+                    return true;
+            }
+        });
+    }, [notebook, filter]);
 
     const groupedByDate = useMemo(() => {
-        return notebook.reduce((acc, item) => {
+        return filteredNotebook.reduce((acc, item) => {
             const date = new Date(item.dateAdded).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
             if (!acc[date]) {
                 acc[date] = [];
@@ -104,17 +136,51 @@ const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook,
             acc[date].push(item);
             return acc;
         }, {} as Record<string, SavedVocabularyItem[]>);
-    }, [notebook]);
-    
-    const shuffledNotebook = useMemo(() => [...notebook].sort(() => Math.random() - 0.5), [notebook, isReviewing]);
+    }, [filteredNotebook]);
+
+    const selectedItems = useMemo(() => filteredNotebook.filter(item => selectedIds.has(item.id)), [filteredNotebook, selectedIds]);
+
+    const toggleSelect = (id: string) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    };
+
+    const selectAllFiltered = () => {
+        setSelectedIds(new Set(filteredNotebook.map(i => i.id)));
+    };
+
+    const loadExamples = async (item: SavedVocabularyItem) => {
+        try {
+            const ex = await getExampleSentences(item.translation, targetLanguage, 3);
+            setExamples(ex);
+        } catch (e) {
+            console.error('Failed to fetch examples', e);
+            setExamples([]);
+        }
+    };
 
     const startReview = () => {
-        if (notebook.length > 0) {
+        const items = selectedItems.length ? selectedItems : filteredNotebook;
+        if (items.length > 0) {
+            setReviewList([...items].sort(() => Math.random() - 0.5));
             setCurrentCardIndex(0);
             setIsReviewing(true);
         }
     };
-    
+
+    const startWriting = async () => {
+        const items = selectedItems.length ? selectedItems : filteredNotebook;
+        if (items.length > 0) {
+            setWritingList([...items]);
+            setCurrentWritingIndex(0);
+            setIsWriting(true);
+            await loadExamples(items[0]);
+        }
+    };
+
     const handleExport = useCallback(() => {
         if (notebook.length === 0) {
             alert("Notebook is empty.");
@@ -154,6 +220,7 @@ const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook,
                         ...item,
                         correctCount: item.correctCount || 0,
                         incorrectCount: item.incorrectCount || 0,
+                        sourceLanguage: item.sourceLanguage || sourceLanguage,
                     }));
                     
                     const combined = [...notebook, ...sanitizedImportedItems];
@@ -172,12 +239,13 @@ const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook,
     }, [notebook, onUpdateNotebook]);
 
     const handleNextCard = () => {
-        setCurrentCardIndex(prev => (prev + 1) % shuffledNotebook.length);
+        setCurrentCardIndex(prev => (prev + 1) % reviewList.length);
     };
 
-    const handleAnswer = (cardId: string, result: 'correct' | 'incorrect') => {
+    const handleAnswer = (result: 'correct' | 'incorrect') => {
+        const card = reviewList[currentCardIndex];
         const newNotebook = notebook.map(item => {
-            if (item.id === cardId) {
+            if (item.id === card.id) {
                 return {
                     ...item,
                     correctCount: item.correctCount + (result === 'correct' ? 1 : 0),
@@ -189,7 +257,40 @@ const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook,
         onUpdateNotebook(newNotebook);
         handleNextCard();
     };
-    
+
+    const currentWritingItem = writingList[currentWritingIndex];
+
+    const handleCheckGrammar = async () => {
+        if (!currentWritingItem || !sentence.trim()) return;
+        setChecking(true);
+        setFeedback(null);
+        setCorrection(null);
+        try {
+            const result = await checkSentenceGrammar(sentence, currentWritingItem.translation, targetLanguage);
+            setFeedback(result.feedback);
+            setCorrection(result.correction);
+        } catch (err) {
+            console.error('Grammar check failed', err);
+            setFeedback('Grammar check failed. Please try again.');
+        } finally {
+            setChecking(false);
+        }
+    };
+
+    const handleNextWriting = async () => {
+        if (writingList.length === 0) return;
+        const next = (currentWritingIndex + 1) % writingList.length;
+        setCurrentWritingIndex(next);
+        setSentence('');
+        setFeedback(null);
+        setCorrection(null);
+        await loadExamples(writingList[next]);
+    };
+
+    const handleForgot = async () => {
+        await handleNextWriting();
+    };
+
     const getPerformanceColor = (item: SavedVocabularyItem) => {
         const { correctCount, incorrectCount } = item;
         const total = correctCount + incorrectCount;
@@ -201,6 +302,25 @@ const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook,
         return 'text-gray-300';
     };
 
+    useEffect(() => {
+        if (!isReviewing) return;
+        const handler = (e: KeyboardEvent) => {
+            if (e.key === 'ArrowRight') { e.preventDefault(); handleAnswer('correct'); }
+            if (e.key === 'ArrowLeft') { e.preventDefault(); handleAnswer('incorrect'); }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [isReviewing, currentCardIndex, reviewList]);
+
+    useEffect(() => {
+        if (!isWriting) return;
+        const handler = (e: KeyboardEvent) => {
+            if (e.key === 'ArrowRight') { e.preventDefault(); handleNextWriting(); }
+            if (e.key === 'ArrowLeft') { e.preventDefault(); handleForgot(); }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [isWriting, currentWritingIndex, writingList]);
 
     if (isReviewing) {
         return (
@@ -210,14 +330,45 @@ const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook,
                     <p>Click the card to see the translation.</p>
                     <p><strong>Swipe right if you remembered, swipe left if you didn't.</strong></p>
                 </div>
-                {shuffledNotebook.length > 0 ? (
-                   <Flashcard card={shuffledNotebook[currentCardIndex]} onAnswer={(result) => handleAnswer(shuffledNotebook[currentCardIndex].id, result)} />
+                {reviewList.length > 0 ? (
+                   <Flashcard card={reviewList[currentCardIndex]} onAnswer={handleAnswer} />
                 ) : (
                     <p className="text-center text-gray-500">No cards to review.</p>
                 )}
                 <button onClick={() => setIsReviewing(false)} className="mt-8 block mx-auto text-gray-400 hover:text-white">Exit Review</button>
             </div>
         )
+    }
+
+    if (isWriting && currentWritingItem) {
+        return (
+            <div className="p-4 md:p-8">
+                <h2 className="text-3xl font-bold text-purple-300 mb-2 text-center">Writing Practice</h2>
+                <div className="text-center text-gray-400 mb-4">
+                    <p>Use the word <strong>{currentWritingItem.translation}</strong> in a sentence.</p>
+                </div>
+                {examples.length > 0 && (
+                    <ul className="text-sm text-gray-400 mb-4 list-disc list-inside">
+                        {examples.map((ex, idx) => (
+                            <li key={idx}>{ex}</li>
+                        ))}
+                    </ul>
+                )}
+                <textarea
+                    value={sentence}
+                    onChange={(e) => setSentence(e.target.value)}
+                    className="w-full h-24 p-2 rounded bg-gray-700 text-white"
+                />
+                {feedback && <p className="mt-2 text-sm text-gray-300">{feedback}</p>}
+                {correction && <p className="mt-1 text-sm text-green-300">{correction}</p>}
+                <div className="flex justify-end gap-2 mt-4">
+                    <button onClick={handleForgot} className="text-gray-400 hover:text-white">Forgot</button>
+                    <button onClick={handleCheckGrammar} disabled={checking} className="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg">{checking ? 'Checking...' : 'Check Grammar'}</button>
+                    <button onClick={handleNextWriting} className="bg-gray-600 hover:bg-gray-500 text-white font-semibold py-2 px-4 rounded-lg">Next</button>
+                </div>
+                <button onClick={() => setIsWriting(false)} className="mt-8 block mx-auto text-gray-400 hover:text-white">Exit Writing</button>
+            </div>
+        );
     }
 
     return (
@@ -232,40 +383,50 @@ const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook,
                 <button onClick={handleExport} className="flex-1 bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition-colors">Export Notebook</button>
             </div>
 
-            {notebook.length > 0 ? (
-                 <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-4">
-                    <button
-                        onClick={startReview}
-                        className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-4 rounded-lg transition-colors"
-                    >
-                       Review with Flashcards ({notebook.length} terms)
-                    </button>
-                    
-                    {Object.entries(groupedByDate).map(([date, items]) => (
-                        <div key={date}>
-                            <h3 className="text-lg font-semibold text-gray-400 mb-2">{date}</h3>
-                            <ul className="bg-gray-800/50 rounded-lg p-4 space-y-3">
-                                {items.map((item) => (
-                                    <li key={item.id} className="flex justify-between items-center">
-                                        <div>
-                                            <span className={`font-bold transition-colors ${getPerformanceColor(item)}`}>{item.word}</span>
-                                            <span className="text-gray-400"> - {item.translation}</span>
-                                        </div>
-                                        <div className="flex items-center gap-4">
-                                            <span className="text-xs text-gray-500 font-mono">
-                                                <span title="Times remembered" className="text-green-500">✓{item.correctCount}</span> | <span title="Times not remembered" className="text-red-500">✗{item.incorrectCount}</span>
-                                            </span>
-                                            <button onClick={() => onDelete(item.id)} className="text-red-400 hover:text-red-300 text-xs font-sans uppercase tracking-wider">Remove</button>
-                                        </div>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    ))}
-                 </div>
-            ) : (
-                <p className="text-center text-gray-400 py-12">Your notebook is empty. Save new words from your adventure!</p>
-            )}
+              {notebook.length > 0 ? (
+                   <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-4">
+                      <div className="flex items-center gap-2 mb-4">
+                          <select value={filter} onChange={(e) => { setFilter(e.target.value as any); setSelectedIds(new Set()); }} className="bg-gray-700 text-white p-2 rounded">
+                              <option value="all">All Words</option>
+                              <option value="today">Added Today</option>
+                              <option value="remembered">Remembered</option>
+                              <option value="difficult">Needs Practice</option>
+                          </select>
+                          <button onClick={selectAllFiltered} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded">Select All</button>
+                      </div>
+                      <div className="flex gap-2 mb-4">
+                          <button onClick={startReview} disabled={selectedItems.length === 0} className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-bold py-3 px-4 rounded-lg transition-colors">Flashcards ({selectedItems.length})</button>
+                          <button onClick={startWriting} disabled={selectedItems.length === 0} className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-bold py-3 px-4 rounded-lg transition-colors">Writing ({selectedItems.length})</button>
+                      </div>
+
+                      {Object.entries(groupedByDate).map(([date, items]) => (
+                          <div key={date}>
+                              <h3 className="text-lg font-semibold text-gray-400 mb-2">{date}</h3>
+                              <ul className="bg-gray-800/50 rounded-lg p-4 space-y-3">
+                                  {items.map((item) => (
+                                      <li key={item.id} className="flex justify-between items-center">
+                                          <label className="flex items-center gap-2">
+                                              <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleSelect(item.id)} />
+                                              <div>
+                                                  <span className={`font-bold transition-colors ${getPerformanceColor(item)}`}>{item.word}</span>
+                                                  <span className="text-gray-400"> - {item.translation}</span>
+                                              </div>
+                                          </label>
+                                          <div className="flex items-center gap-4">
+                                              <span className="text-xs text-gray-500 font-mono">
+                                                  <span title="Times remembered" className="text-green-500">✓{item.correctCount}</span> | <span title="Times not remembered" className="text-red-500">✗{item.incorrectCount}</span>
+                                              </span>
+                                              <button onClick={() => onDelete(item.id)} className="text-red-400 hover:text-red-300 text-xs font-sans uppercase tracking-wider">Remove</button>
+                                          </div>
+                                      </li>
+                                  ))}
+                              </ul>
+                          </div>
+                      ))}
+                   </div>
+              ) : (
+                  <p className="text-center text-gray-400 py-12">Your notebook is empty. Save new words from your adventure!</p>
+              )}
         </div>
     );
 };

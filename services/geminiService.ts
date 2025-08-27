@@ -117,6 +117,21 @@ const inspirationSchema = {
     required: ["ideas"]
 };
 
+const grammarCheckSchema = {
+    type: Type.OBJECT,
+    properties: {
+        isCorrect: { type: Type.BOOLEAN },
+        feedback: { type: Type.STRING },
+        correction: { type: Type.STRING }
+    },
+    required: ["isCorrect", "feedback", "correction"]
+};
+
+const exampleSentencesSchema = {
+    type: Type.ARRAY,
+    items: { type: Type.STRING }
+};
+
 
 const systemInstruction = `You are a multilingual storyteller and language tutor creating a text-based adventure game. Your goal is to generate an immersive narrative that helps users learn a new language. 
 You will be provided with a list of known characters and their descriptions. You MUST use these descriptions when generating the story and especially the image prompt to ensure visual consistency for all characters and monsters.
@@ -347,5 +362,51 @@ Word: "${word}"`;
     } catch (error) {
         console.error(`Error translating word "${word}":`, error);
         throw new Error(getApiErrorMessage(error));
+    }
+};
+
+export const checkSentenceGrammar = async (
+    sentence: string,
+    word: string,
+    language: string
+): Promise<{ isCorrect: boolean; feedback: string; correction: string }> => {
+    try {
+        const prompt = `You are a grammar checker for ${language}. Determine if the following sentence is grammatically correct and uses the word "${word}" appropriately. Provide a corrected version if needed. Respond in JSON.\nSentence: "${sentence}"`;
+
+        const response = await ai.models.generateContent({
+            model: storyModel,
+            contents: prompt,
+            config: {
+                temperature: 0,
+                responseMimeType: "application/json",
+                responseSchema: grammarCheckSchema,
+            },
+        });
+
+        const data = JSON.parse(response.text.trim());
+        return { isCorrect: !!data.isCorrect, feedback: data.feedback || '', correction: data.correction || '' };
+    } catch (error) {
+        console.error('Error checking grammar:', error);
+        throw new Error(getApiErrorMessage(error));
+    }
+};
+
+export const getExampleSentences = async (word: string, language: string, count: number = 3): Promise<string[]> => {
+    try {
+        const prompt = `Provide ${count} simple example sentences in ${language} that use the word "${word}". Respond in JSON array.`;
+        const response = await ai.models.generateContent({
+            model: storyModel,
+            contents: prompt,
+            config: {
+                temperature: 0.5,
+                responseMimeType: "application/json",
+                responseSchema: exampleSentencesSchema,
+            },
+        });
+        const data = JSON.parse(response.text.trim());
+        return Array.isArray(data) ? data.slice(0, count) : [];
+    } catch (error) {
+        console.error('Error getting example sentences:', error);
+        return [];
     }
 };
