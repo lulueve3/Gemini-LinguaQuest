@@ -9,6 +9,8 @@ import LoadingSpinner from './components/LoadingSpinner';
 import GameSetup from './components/GameSetup';
 import NotebookView from './components/NotebookView';
 import Toast from './components/Toast';
+import ApiKeyManager from './components/ApiKeyManager';
+import apiKeyService from './services/apiKeyService';
 
 const SESSION_ID = 1;
 const STORAGE_WARNING_THRESHOLD_BYTES = 50 * 1024 * 1024; // 50MB
@@ -149,6 +151,10 @@ const App: React.FC = () => {
     const [speakingState, setSpeakingState] = useState<{ type: 'story' | 'word'; key: string } | null>(null);
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
+    useEffect(() => {
+        apiKeyService.init();
+    }, []);
+
 
     const gameState = history[currentStepIndex] ?? null;
 
@@ -228,6 +234,14 @@ const App: React.FC = () => {
             setToasts(prev => prev.filter(t => t.id !== id));
         }, duration);
     }, []);
+
+    useEffect(() => {
+        apiKeyService.onChange((key, changeType) => {
+            if (changeType === 'auto') {
+                addToast(`API key exhausted. Switched to ${key.slice(0,6)}...`, 'success');
+            }
+        });
+    }, [addToast]);
 
     const removeToast = (id: number) => {
         setToasts(prev => prev.filter(t => t.id !== id));
@@ -608,6 +622,8 @@ const App: React.FC = () => {
         switch (appScreen) {
             case AppScreen.NOTEBOOK:
                 return <NotebookView notebook={notebook} onUpdateNotebook={handleUpdateNotebook} onClose={() => setAppScreen(AppScreen.GAME)} onDelete={handleDeleteFromNotebook} />;
+            case AppScreen.API_KEY_MANAGER:
+                return <ApiKeyManager onBack={() => setAppScreen(AppScreen.SETUP)} onToast={addToast} />;
             case AppScreen.GAME:
                 if (!gameState || !userSettings) {
                     return (
@@ -769,7 +785,7 @@ const App: React.FC = () => {
                 );
             case AppScreen.SETUP:
             default:
-                 return <GameSetup onStartGame={handleStartGame} isLoading={isLoading} onLoadGame={handleLoadGameFromFile} onContinueGame={handleContinueGame} hasSaveData={hasSaveData} error={error} onClearData={handleClearData} onToast={addToast} />;
+                 return <GameSetup onStartGame={handleStartGame} isLoading={isLoading} onLoadGame={handleLoadGameFromFile} onContinueGame={handleContinueGame} hasSaveData={hasSaveData} error={error} onClearData={handleClearData} onToast={addToast} onManageApiKeys={() => setAppScreen(AppScreen.API_KEY_MANAGER)} />;
         }
     };
 

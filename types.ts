@@ -10,6 +10,7 @@ export enum AppScreen {
   SETUP,
   GAME,
   NOTEBOOK,
+  API_KEY_MANAGER,
 }
 
 export interface UserSettings {

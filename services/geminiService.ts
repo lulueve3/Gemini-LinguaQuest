@@ -1,12 +1,15 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { AdventureStep, UserSettings, PromptSuggestion, CharacterProfile } from '../types';
+import apiKeyService from './apiKeyService';
 
-if (!process.env.API_KEY) {
-  throw new Error("API_KEY environment variable is not set");
-}
-
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const getClient = () => {
+    const key = apiKeyService.getActiveKey();
+    if (!key) {
+        throw new Error("No API key configured. Please add an API key.");
+    }
+    return new GoogleGenAI({ apiKey: key });
+};
 
 const storyModel = 'gemini-2.5-flash';
 const imageModel = 'imagen-4.0-generate-001';
@@ -154,6 +157,36 @@ const getApiErrorMessage = (error: unknown): string => {
     return String(error) || defaultMessage;
 };
 
+const isQuotaError = (error: unknown): boolean => {
+    if (error instanceof Error) {
+        const msg = error.message.toLowerCase();
+        return msg.includes("resource_exhausted") || msg.includes("429");
+    }
+    const msg = String(error).toLowerCase();
+    return msg.includes("resource_exhausted") || msg.includes("429");
+};
+
+const callGemini = async <T>(fn: (client: GoogleGenAI) => Promise<T>): Promise<T> => {
+    const keys = apiKeyService.getKeys();
+    if (keys.length === 0) {
+        throw new Error("No API key configured. Please add an API key.");
+    }
+    for (let attempt = 0; attempt < keys.length; attempt++) {
+        const client = getClient();
+        try {
+            return await fn(client);
+        } catch (error) {
+            if (isQuotaError(error) && attempt < keys.length - 1) {
+                if (apiKeyService.switchToNextKey()) {
+                    continue;
+                }
+            }
+            throw new Error(getApiErrorMessage(error));
+        }
+    }
+    throw new Error("All API keys are exhausted.");
+};
+
 
 export const generateAdventureStep = async (prompt: string, settings: Omit<UserSettings, 'prompt'>, knownCharacters: CharacterProfile[]): Promise<AdventureStep> => {
     try {
@@ -165,7 +198,7 @@ export const generateAdventureStep = async (prompt: string, settings: Omit<UserS
 
         const fullPrompt = `${prompt}${characterContext}\n\nGame settings:\nSource Language: ${settings.sourceLanguage}\nTarget Language: ${settings.targetLanguage}\nGenre: ${settings.genre}${styleInstruction}`;
 
-        const response = await ai.models.generateContent({
+        const response = await callGemini(client => client.models.generateContent({
             model: storyModel,
             contents: fullPrompt,
             config: {
@@ -174,7 +207,7 @@ export const generateAdventureStep = async (prompt: string, settings: Omit<UserS
                 responseSchema: responseSchema,
                 temperature: 0.8,
             },
-        });
+        }));
 
         const jsonText = response.text.trim();
         const parsedJson = JSON.parse(jsonText);
@@ -196,7 +229,7 @@ export const generatePromptSuggestion = async (animeName: string): Promise<Promp
     try {
         const fullPrompt = `Based on the anime/manga "${animeName}", generate a detailed suggestion for a text-based RPG. Provide a creative story prompt, a suitable genre, a detailed description of the world and its setting, a list of 2-3 key characters or factions, and a list of 2-3 key events that provide context.`;
 
-        const response = await ai.models.generateContent({
+        const response = await callGemini(client => client.models.generateContent({
             model: storyModel,
             contents: fullPrompt,
             config: {
@@ -205,7 +238,7 @@ export const generatePromptSuggestion = async (animeName: string): Promise<Promp
                 responseSchema: suggestionSchema,
                 temperature: 0.7,
             },
-        });
+        }));
 
         const jsonText = response.text.trim();
         const parsedJson = JSON.parse(jsonText);
@@ -230,7 +263,7 @@ export const generateInspirationIdeas = async (): Promise<string[]> => {
 2. **4 ideas** that are completely original concepts based on genres (e.g., 'A bio-punk detective solving crimes in a city of mutated plants', 'A solar-punk pirate sailing the cosmic winds'). These should be creative and not reference any existing anime/manga.
 Do not repeat the examples given. Each idea must be a short, punchy phrase suitable for a button label. Ensure high variety in the suggestions.`;
         
-        const response = await ai.models.generateContent({
+        const response = await callGemini(client => client.models.generateContent({
             model: storyModel,
             contents: prompt,
             config: {
@@ -239,7 +272,7 @@ Do not repeat the examples given. Each idea must be a short, punchy phrase suita
                 responseSchema: inspirationSchema,
                 temperature: 0.9,
             }
-        });
+        }));
 
         const jsonText = response.text.trim();
         const parsedJson = JSON.parse(jsonText);
@@ -260,7 +293,7 @@ Do not repeat the examples given. Each idea must be a short, punchy phrase suita
 
 export const generateAdventureImage = async (prompt: string): Promise<string> => {
     try {
-        const response = await ai.models.generateImages({
+        const response = await callGemini(client => client.models.generateImages({
             model: imageModel,
             prompt: prompt,
             config: {
@@ -268,7 +301,7 @@ export const generateAdventureImage = async (prompt: string): Promise<string> =>
                 outputMimeType: 'image/jpeg',
                 aspectRatio: '16:9',
             },
-        });
+        }));
 
         if (response.generatedImages && response.generatedImages.length > 0) {
             const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
@@ -327,13 +360,13 @@ Your response:`;
 Word: "${word}"`;
         }
 
-        const response = await ai.models.generateContent({
+        const response = await callGemini(client => client.models.generateContent({
             model: storyModel,
             contents: prompt,
             config: {
                 temperature: 0,
             },
-        });
+        }));
 
         const translatedText = response.text.trim();
         
