@@ -17,7 +17,9 @@ export function filterVocabulary(items: SavedVocabularyItem[], filter: Vocabular
     case 'remembered':
       return items.filter(i => i.correctCount > i.incorrectCount);
     case 'normal':
-      return items.filter(i => Math.abs(i.correctCount - i.incorrectCount) <= 1);
+      return items.filter(i => (
+        i.correctCount === 0 && i.incorrectCount === 0
+      ) || Math.abs(i.correctCount - i.incorrectCount) <= 1);
     case 'difficult':
       return items.filter(i => i.incorrectCount > i.correctCount);
     case 'all':
