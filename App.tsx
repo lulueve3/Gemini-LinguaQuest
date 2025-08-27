@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { LoadingState, GameState, AppScreen, UserSettings, VocabularyItem, SavedVocabularyItem, SaveData, ChoiceItem, CharacterProfile, ImageRecord } from './types';
 import { generateAdventureStep, generateAdventureImage, translateWord } from './services/geminiService';
@@ -7,6 +8,7 @@ import ChoiceButton from './components/ChoiceButton';
 import LoadingSpinner from './components/LoadingSpinner';
 import GameSetup from './components/GameSetup';
 import NotebookView from './components/NotebookView';
+import Toast from './components/Toast';
 
 const SESSION_ID = 1;
 const STORAGE_WARNING_THRESHOLD_BYTES = 50 * 1024 * 1024; // 50MB
@@ -121,6 +123,11 @@ const langToCode = (langName: string): string => {
     return map[lowerCaseLang] || 'en-US';
 };
 
+interface ToastMessage {
+    id: number;
+    message: string;
+    type: 'error' | 'success';
+}
 
 const App: React.FC = () => {
     const [appScreen, setAppScreen] = useState<AppScreen>(AppScreen.SETUP);
@@ -130,10 +137,8 @@ const App: React.FC = () => {
     const [currentStepIndex, setCurrentStepIndex] = useState<number>(-1);
     const [loadingState, setLoadingState] = useState<LoadingState>(LoadingState.IDLE);
     const [error, setError] = useState<string | null>(null);
-    const [successMessage, setSuccessMessage] = useState<string | null>(null);
     const [notebook, setNotebook] = useState<SavedVocabularyItem[]>([]);
     const [hasSaveData, setHasSaveData] = useState<boolean>(false);
-    const [showSaveConfirmation, setShowSaveConfirmation] = useState(false);
     const [isRecovering, setIsRecovering] = useState(false);
     const [saveDataInfo, setSaveDataInfo] = useState<{size: string, steps: number} | null>(null);
     const [isImageFullscreen, setIsImageFullscreen] = useState(false);
@@ -142,6 +147,7 @@ const App: React.FC = () => {
     const [selectedInteractiveWords, setSelectedInteractiveWords] = useState<VocabularyItem[]>([]);
     const [translatingWord, setTranslatingWord] = useState<string | null>(null);
     const [speakingState, setSpeakingState] = useState<{ type: 'story' | 'word'; key: string } | null>(null);
+    const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
 
     const gameState = history[currentStepIndex] ?? null;
@@ -215,6 +221,18 @@ const App: React.FC = () => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
 
+    const addToast = useCallback((message: string, type: 'error' | 'success' = 'error', duration: number = 6000) => {
+        const id = Date.now();
+        setToasts(prev => [...prev, { id, message, type }]);
+        setTimeout(() => {
+            setToasts(prev => prev.filter(t => t.id !== id));
+        }, duration);
+    }, []);
+
+    const removeToast = (id: number) => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+    };
+
     const updateSaveDataInfo = useCallback(async () => {
         if (history.length > 0) {
             try {
@@ -229,716 +247,512 @@ const App: React.FC = () => {
                 setShowStorageWarning(totalBytes > STORAGE_WARNING_THRESHOLD_BYTES);
 
             } catch (e) {
-                console.error("Could not calculate storage size:", e);
-                setSaveDataInfo(null);
-                setShowStorageWarning(false);
+                console.error("Error calculating save size:", e);
+                addToast("Could not calculate save data size.", "error");
             }
         } else {
             setSaveDataInfo(null);
             setShowStorageWarning(false);
         }
-    }, [userSettings, history, currentStepIndex, characterProfiles]);
-    
+    }, [history, userSettings, currentStepIndex, characterProfiles, addToast]);
+
     useEffect(() => {
         updateSaveDataInfo();
     }, [history, updateSaveDataInfo]);
 
-    const handleManualSave = async () => {
-        if (!userSettings || history.length === 0) {
-            setError("No game data to save.");
-            return;
-        }
-
+    const handleStartGame = async (settings: UserSettings) => {
+        setError(null);
+        setIsRecovering(false);
+        setLoadingState(LoadingState.GENERATING_STORY);
+        setAppScreen(AppScreen.GAME);
+        
         try {
-            const session = await db.session.get(SESSION_ID);
-            const dbHistory = await db.history.toArray();
+            await db.transaction('rw', db.session, db.history, db.images, async () => {
+                await db.session.clear();
+                await db.history.clear();
+                await db.images.clear();
+            });
+
+            const initialStep = await generateAdventureStep(`New Game: ${settings.prompt}`, settings, []);
             
-            if (!session) throw new Error("Session data not found in DB.");
+            let imageUrl = '';
+            let imageId: string | undefined = undefined;
+            if (settings.generateImages) {
+                setLoadingState(LoadingState.GENERATING_IMAGE);
+                imageUrl = await generateAdventureImage(initialStep.imagePrompt);
+                const blob = base64ToBlob(imageUrl, 'image/jpeg');
+                imageId = crypto.randomUUID();
+                await db.images.put({ id: imageId, blob });
+            }
 
-            const historyForSave: GameState[] = await Promise.all(
-                dbHistory.map(async (step) => {
-                    let imageUrl = '';
-                    if (step.imageId) {
-                        const imageRecord = await db.images.get(step.imageId);
-                        if (imageRecord) {
-                            imageUrl = await blobToBase64(imageRecord.blob);
-                        }
-                    }
-                    return { ...step, imageUrl, imageId: step.imageId, selectedChoiceIndex: step.selectedChoiceIndex };
-                })
-            );
+            const newGameState: GameState = { ...initialStep, imageUrl, imageId };
 
-            const saveData: SaveData = {
-                userSettings: session.userSettings,
-                history: historyForSave,
-                currentStepIndex: session.currentStepIndex,
-                characterProfiles: session.characterProfiles
-            };
-
-            const jsonString = JSON.stringify(saveData, null, 2);
-            const blob = new Blob([jsonString], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            const genreSlug = (userSettings.genre || 'adventure').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-            a.download = `gemini-linguaquest-save-${genreSlug}-${Date.now()}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            setUserSettings(settings);
+            setHistory([newGameState]);
+            setCurrentStepIndex(0);
+            setCharacterProfiles(initialStep.characters || []);
+            setSelectedInteractiveWords([]);
             
-            setShowSaveConfirmation(true);
-            setTimeout(() => setShowSaveConfirmation(false), 3000);
-
-        } catch (err) {
-            console.error('Failed to create save file:', err);
-            setError('Failed to create save file. Please try again.');
+        } catch (e) {
+            console.error("Failed to start game:", e);
+            setError((e as Error).message);
+            addToast((e as Error).message, 'error');
+            setAppScreen(AppScreen.SETUP);
+        } finally {
+            setLoadingState(LoadingState.IDLE);
         }
     };
 
-    const handleContinueGame = useCallback(async () => {
-        setIsRecovering(true);
+    const handleMakeChoice = async (choiceIndex: number) => {
+        if (loadingState !== LoadingState.IDLE) return;
+        
+        const currentGameState = history[currentStepIndex];
+        if (!currentGameState) return;
+
+        const updatedHistory = [...history];
+        updatedHistory[currentStepIndex] = { ...currentGameState, selectedChoiceIndex: choiceIndex };
+        setHistory(updatedHistory);
+        
         setError(null);
-        setSuccessMessage(null);
+        setLoadingState(LoadingState.GENERATING_STORY);
+
         try {
-            const session = await db.session.get(SESSION_ID);
-            const historySteps = await db.history.toArray();
+            const choice = currentGameState.choices[choiceIndex].choice;
+            const fullPrompt = `The player chose: "${choice}". Continue the story.`;
             
-            if (!session || historySteps.length === 0) {
-                throw new Error("No saved game found in the database.");
+            const nextStep = await generateAdventureStep(fullPrompt, userSettings!, characterProfiles);
+
+            let imageUrl = '';
+            let imageId: string | undefined = undefined;
+            if (userSettings?.generateImages) {
+                setLoadingState(LoadingState.GENERATING_IMAGE);
+                imageUrl = await generateAdventureImage(nextStep.imagePrompt);
+                const blob = base64ToBlob(imageUrl, 'image/jpeg');
+                imageId = crypto.randomUUID();
+                await db.images.put({ id: imageId, blob });
+            }
+            
+            const newGameState: GameState = { ...nextStep, imageUrl, imageId };
+
+            const newCharacterProfiles = [...characterProfiles];
+            if (nextStep.characters && nextStep.characters.length > 0) {
+                nextStep.characters.forEach(newChar => {
+                    const existingIndex = newCharacterProfiles.findIndex(c => c.name.toLowerCase() === newChar.name.toLowerCase());
+                    if (existingIndex > -1) newCharacterProfiles[existingIndex] = newChar;
+                    else newCharacterProfiles.push(newChar);
+                });
             }
 
+            const newHistory = [...updatedHistory, newGameState];
+            setHistory(newHistory);
+            setCurrentStepIndex(newHistory.length - 1);
+            setCharacterProfiles(newCharacterProfiles);
+            setSelectedInteractiveWords([]);
+            setLoadingState(LoadingState.IDLE);
+
+        } catch (e) {
+             console.error("Failed to generate next step:", e);
+             setError((e as Error).message);
+             addToast((e as Error).message, 'error');
+             setLoadingState(LoadingState.ERROR);
+        }
+    };
+
+    const autoSaveGame = useCallback(async () => {
+        if (appScreen !== AppScreen.GAME || history.length === 0 || !userSettings) return;
+        try {
+            await db.transaction('rw', db.session, db.history, async () => {
+                await db.history.clear();
+                const historyToSave: HistoryStep[] = history.map(h => ({
+                    story: h.story, translatedStory: h.translatedStory, choices: h.choices,
+                    vocabulary: h.vocabulary, imageId: h.imageId || '', selectedChoiceIndex: h.selectedChoiceIndex,
+                }));
+                await db.history.bulkAdd(historyToSave);
+
+                const sessionData: SessionData = { id: SESSION_ID, userSettings, currentStepIndex, characterProfiles };
+                await db.session.put(sessionData);
+            });
+            setHasSaveData(true);
+        } catch (e) {
+            console.error("Auto-save failed:", e);
+            addToast("Auto-save failed. Your progress may not be saved.", "error");
+        }
+    }, [appScreen, history, userSettings, currentStepIndex, characterProfiles, addToast]);
+
+    useEffect(() => {
+        const timer = setTimeout(() => { autoSaveGame(); }, 2000);
+        return () => clearTimeout(timer);
+    }, [history, autoSaveGame]);
+
+    const handleContinueGame = async () => {
+        setError(null);
+        setIsRecovering(true);
+        try {
+            const session = await db.session.get(SESSION_ID);
+            const historySteps = await db.history.orderBy('id').toArray();
+            if (!session || historySteps.length === 0) throw new Error("No saved game data found.");
+
+            const recoveredHistory: GameState[] = historySteps.map(step => ({
+                story: step.story, translatedStory: step.translatedStory, imageUrl: '', imageId: step.imageId,
+                choices: step.choices, vocabulary: step.vocabulary, selectedChoiceIndex: step.selectedChoiceIndex,
+            }));
+
             setUserSettings(session.userSettings);
-            setCharacterProfiles(session.characterProfiles);
-            const historyWithImageIds = historySteps.map(step => ({ ...step, imageUrl: '' })); // imageUrl will be loaded by effect
-            setHistory(historyWithImageIds);
+            setHistory(recoveredHistory);
             setCurrentStepIndex(session.currentStepIndex);
-            
+            setCharacterProfiles(session.characterProfiles);
             setAppScreen(AppScreen.GAME);
-        } catch (err) {
-            const message = err instanceof Error ? err.message : 'Could not load game.';
-            console.error("Failed to load game from DB", err);
-            setError(`Failed to load save: ${message}`);
-            await clearAllData();
-            setHasSaveData(false);
+        } catch (e) {
+            console.error("Failed to continue game:", e);
+            setError((e as Error).message);
+            addToast((e as Error).message, 'error');
+            setAppScreen(AppScreen.SETUP);
         } finally {
             setIsRecovering(false);
         }
-    }, []);
+    };
 
-    const handleLoadGameFromFile = (file: File) => {
+    const handleLoadGameFromFile = async (file: File) => {
+        setError(null);
         setIsRecovering(true);
-        setError(null);
-        setSuccessMessage(null);
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            try {
-                const text = e.target?.result as string;
-                if (!text) throw new Error("File is empty.");
-                
-                const parsedData = JSON.parse(text) as SaveData;
-                
-                if (!parsedData.userSettings || !Array.isArray(parsedData.history) || typeof parsedData.currentStepIndex !== 'number' || !Array.isArray(parsedData.characterProfiles)) {
-                    throw new Error("Invalid or corrupted save file format.");
+        try {
+            const text = await file.text();
+            const data = JSON.parse(text) as SaveData;
+            if (!data.userSettings || !data.history || typeof data.currentStepIndex === 'undefined') throw new Error("Invalid save file format.");
+
+            await clearAllData();
+
+            const newImageRecords: ImageRecord[] = [];
+            const newHistory: GameState[] = [];
+
+            for (const step of data.history) {
+                let newImageId: string | undefined = undefined;
+                if (step.imageUrl && data.userSettings.generateImages) {
+                    const blob = base64ToBlob(step.imageUrl, 'image/jpeg');
+                    newImageId = crypto.randomUUID();
+                    newImageRecords.push({ id: newImageId, blob });
                 }
-                
-                await clearAllData();
-
-                const imageRecords: ImageRecord[] = [];
-                const historyForState = parsedData.history.map(step => {
-                    let imageId = '';
-                    if (step.imageUrl && step.imageUrl.startsWith('data:')) {
-                        imageId = crypto.randomUUID();
-                        const blob = base64ToBlob(step.imageUrl, 'image/jpeg');
-                        imageRecords.push({ id: imageId, blob });
-                    }
-                    return {
-                        ...step,
-                        imageId: imageId,
-                        imageUrl: '',
-                    };
-                });
-
-                await db.transaction('rw', db.session, db.history, db.images, async () => {
-                    if (imageRecords.length > 0) {
-                        await db.images.bulkAdd(imageRecords);
-                    }
-
-                    const historyStepsForDb: HistoryStep[] = historyForState.map(s => ({
-                        story: s.story,
-                        translatedStory: s.translatedStory,
-                        choices: s.choices,
-                        vocabulary: s.vocabulary,
-                        imageId: s.imageId || '',
-                        selectedChoiceIndex: s.selectedChoiceIndex,
-                    }));
-                    await db.history.bulkAdd(historyStepsForDb);
-
-                    const sessionData: SessionData = {
-                        id: SESSION_ID,
-                        userSettings: parsedData.userSettings,
-                        currentStepIndex: parsedData.currentStepIndex,
-                        characterProfiles: parsedData.characterProfiles,
-                    };
-                    await db.session.put(sessionData);
-                });
-
-                setUserSettings(parsedData.userSettings);
-                setCharacterProfiles(parsedData.characterProfiles);
-                setHistory(historyForState);
-                setCurrentStepIndex(parsedData.currentStepIndex);
-                setHasSaveData(true);
-                setAppScreen(AppScreen.GAME);
-
-            } catch (err) {
-                const message = err instanceof Error ? err.message : 'Could not load game from file.';
-                console.error("Failed to load game from file", err);
-                setError(`Failed to load save file: ${message}`);
-                await clearAllData();
-                setHasSaveData(false);
-            } finally {
-                setIsRecovering(false);
-            }
-        };
-        reader.readAsText(file);
-    };
-    
-    const updateCharacterProfiles = (newProfiles: CharacterProfile[]) => {
-        if (!newProfiles || newProfiles.length === 0) return;
-        
-        const updatedProfiles = [...characterProfiles];
-        const profilesMap = new Map(updatedProfiles.map(p => [p.name.toLowerCase(), p]));
-        newProfiles.forEach(newProfile => {
-            if (newProfile.name && newProfile.description) {
-                profilesMap.set(newProfile.name.toLowerCase(), newProfile);
-            }
-        });
-        const finalProfiles = Array.from(profilesMap.values());
-        setCharacterProfiles(finalProfiles);
-        db.session.where({ id: SESSION_ID }).modify({ characterProfiles: finalProfiles });
-    };
-
-    const getLoadingMessage = () => {
-        if (isRecovering) return "Recovering your adventure...";
-        switch (loadingState) {
-            case LoadingState.GENERATING_STORY: return "The dungeon master is weaving your fate...";
-            case LoadingState.GENERATING_IMAGE: return "A magical artist is painting your scene...";
-            case LoadingState.ERROR: return "A mysterious force has interfered...";
-            default: return "";
-        }
-    };
-    
-    const handleStartGame = useCallback(async (settings: UserSettings) => {
-        setLoadingState(LoadingState.GENERATING_STORY);
-        setError(null);
-        setSuccessMessage(null);
-        await clearAllData();
-        setHistory([]);
-        setCurrentStepIndex(-1);
-        setUserSettings(settings);
-        setCharacterProfiles([]);
-        setAppScreen(AppScreen.GAME);
-
-        const adventureStep = await generateAdventureStep(settings.prompt, settings, []);
-
-        if (!adventureStep || adventureStep === 'RPC_ERROR') {
-            setError("Failed to generate the story's beginning. Please try again.");
-            setLoadingState(LoadingState.ERROR);
-            return;
-        }
-        
-        updateCharacterProfiles(adventureStep.characters);
-        let imageId = '';
-        if (settings.generateImages) {
-            setLoadingState(LoadingState.GENERATING_IMAGE);
-            const imageResult = await generateAdventureImage(adventureStep.imagePrompt);
-            if (imageResult && imageResult !== 'RATE_LIMITED') {
-                imageId = crypto.randomUUID();
-                const blob = base64ToBlob(imageResult, 'image/jpeg');
-                await db.images.add({ id: imageId, blob });
-            } else {
-                console.warn("Image generation failed or was rate-limited on start.");
-            }
-        }
-        
-        const newHistoryStep: HistoryStep = {
-            story: adventureStep.story,
-            translatedStory: adventureStep.translatedStory,
-            imageId,
-            choices: adventureStep.choices,
-            vocabulary: adventureStep.vocabulary,
-        };
-        
-        await db.history.add(newHistoryStep);
-
-        const newSession: SessionData = {
-            id: SESSION_ID,
-            userSettings: settings,
-            currentStepIndex: 0,
-            characterProfiles: adventureStep.characters
-        };
-        await db.session.put(newSession);
-
-        setHistory([{ ...newHistoryStep, imageUrl: '' }]);
-        setCurrentStepIndex(0);
-        setHasSaveData(true);
-        setLoadingState(LoadingState.IDLE);
-    }, []);
-
-    const handleChoice = async (choice: ChoiceItem) => {
-        if (!gameState || !userSettings) return;
-
-        setLoadingState(LoadingState.GENERATING_STORY);
-        setError(null);
-        
-        const choiceIndex = gameState.choices.findIndex(c => c.choice === choice.choice);
-        const storyContext = history.slice(0, currentStepIndex + 1).map(h => h.story).slice(-3).join('\n\n');
-        const nextPrompt = `Continue the story based on the player's last choice. The story's source language is ${userSettings.sourceLanguage} and the target language for translation is ${userSettings.targetLanguage}.\n\nPREVIOUS STORY:\n${storyContext}\n\nPLAYER'S CHOICE: "${choice.choice}"`;
-
-        const adventureStep = await generateAdventureStep(nextPrompt, userSettings, characterProfiles);
-
-        if (!adventureStep || adventureStep === 'RPC_ERROR') {
-            setError("Failed to generate the next chapter. Please try a different choice.");
-            setLoadingState(LoadingState.ERROR);
-            return;
-        }
-        
-        updateCharacterProfiles(adventureStep.characters);
-        
-        let imageId = '';
-        if (userSettings.generateImages) {
-            setLoadingState(LoadingState.GENERATING_IMAGE);
-            const imageResult = await generateAdventureImage(adventureStep.imagePrompt);
-            if (imageResult && imageResult !== 'RATE_LIMITED') {
-                imageId = crypto.randomUUID();
-                const blob = base64ToBlob(imageResult, 'image/jpeg');
-                await db.images.add({ id: imageId, blob });
-            }
-        }
-
-        const newHistoryStep: HistoryStep = {
-            story: adventureStep.story,
-            translatedStory: adventureStep.translatedStory,
-            imageId,
-            choices: adventureStep.choices,
-            vocabulary: adventureStep.vocabulary,
-        };
-
-        const updatedCurrentStep: GameState = { ...history[currentStepIndex], selectedChoiceIndex: choiceIndex };
-        const newHistoryForState = [
-            ...history.slice(0, currentStepIndex),
-            updatedCurrentStep,
-            { ...newHistoryStep, imageUrl: '' }
-        ];
-        
-        await db.transaction('rw', db.history, db.session, async () => {
-            const dbHistory = await db.history.toArray();
-            const currentDbStep = dbHistory[currentStepIndex];
-
-            if (!currentDbStep || typeof currentDbStep.id === 'undefined') {
-                console.error("Critical error: Could not find current step in DB.");
-                throw new Error("DB state is out of sync.");
+                newHistory.push({ ...step, imageId: newImageId, imageUrl: '' });
             }
 
-            const idsToDelete = dbHistory.slice(currentStepIndex + 1).map(s => s.id!).filter(id => id !== undefined);
-            if (idsToDelete.length > 0) {
-                await db.history.bulkDelete(idsToDelete);
-            }
+            await db.images.bulkAdd(newImageRecords);
+
+            setUserSettings(data.userSettings);
+            setHistory(newHistory);
+            setCurrentStepIndex(data.currentStepIndex);
+            setCharacterProfiles(data.characterProfiles || []);
+            setAppScreen(AppScreen.GAME);
             
-            await db.history.update(currentDbStep.id, { selectedChoiceIndex: choiceIndex });
-            await db.history.add(newHistoryStep);
-            await db.session.update(SESSION_ID, { currentStepIndex: newHistoryForState.length - 1 });
-        });
-        
-        setHistory(newHistoryForState);
-        setCurrentStepIndex(newHistoryForState.length - 1);
-        setLoadingState(LoadingState.IDLE);
+            await autoSaveGame(); 
+            addToast("Game loaded successfully!", "success");
+        } catch (e) {
+            console.error("Failed to load game from file:", e);
+            const errorMsg = `Failed to load game: ${(e as Error).message}`;
+            setError(errorMsg);
+            addToast(errorMsg, 'error');
+        } finally {
+            setIsRecovering(false);
+        }
     };
 
-    const handleGoBack = () => {
-        if (currentStepIndex > 0) setCurrentStepIndex(prev => prev - 1);
-    };
-    const handleGoNext = () => {
-        if (currentStepIndex < history.length - 1) setCurrentStepIndex(prev => prev + 1);
+    const handleManualSave = async () => {
+        if (history.length === 0 || !userSettings) return;
+        try {
+            const historyWithImages: GameState[] = await Promise.all(
+                history.map(async (step) => {
+                    if (step.imageId && userSettings.generateImages) {
+                        const imageRecord = await db.images.get(step.imageId);
+                        if (imageRecord) return { ...step, imageUrl: await blobToBase64(imageRecord.blob) };
+                    }
+                    return { ...step, imageUrl: '' };
+                })
+            );
+
+            const saveData: SaveData = { userSettings, history: historyWithImages, currentStepIndex, characterProfiles };
+            const jsonString = JSON.stringify(saveData);
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const genreSlug = userSettings.genre.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+            a.download = `gemini-linguaquest-save-${genreSlug}-${Date.now()}.json`;
+            a.href = url;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            addToast("Game saved to file!", "success");
+        } catch (e) {
+            console.error("Manual save failed:", e);
+            addToast(`Failed to save game: ${(e as Error).message}`, "error");
+        }
     };
 
-    const handleSaveWord = async (item: VocabularyItem) => {
-        if (notebookWordsSet.has(item.word.toLowerCase())) return;
+    const handleClearData = async () => {
+        if (window.confirm("Are you sure you want to clear all game data? This cannot be undone.")) {
+            try {
+                await clearAllData();
+                setHistory([]); setCurrentStepIndex(-1); setUserSettings(null);
+                setCharacterProfiles([]); setHasSaveData(false); setError(null);
+                setAppScreen(AppScreen.SETUP);
+                addToast("All data cleared successfully.", "success");
+            } catch (e) {
+                console.error("Failed to clear data:", e);
+                addToast(`Failed to clear data: ${(e as Error).message}`, 'error');
+            }
+        }
+    };
 
+    const handleAddToNotebook = async (item: VocabularyItem) => {
+        if (notebookWordsSet.has(item.word.toLowerCase())) {
+            addToast(`"${item.word}" is already in your notebook.`, "error");
+            return;
+        }
         const newItem: SavedVocabularyItem = {
-            ...item,
-            id: `${item.word}-${Date.now()}`,
-            dateAdded: new Date().toISOString(),
-            correctCount: 0,
-            incorrectCount: 0,
+            ...item, id: crypto.randomUUID(), dateAdded: new Date().toISOString(),
+            correctCount: 0, incorrectCount: 0,
         };
-        await db.notebook.add(newItem);
-        setNotebook(prev => [newItem, ...prev].sort((a,b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime()));
-    };
-    
-    const handleSaveAllSelectedWords = async () => {
-        if (unsavedSelectedWords.length === 0) return;
-
-        const newSavedItems: SavedVocabularyItem[] = unsavedSelectedWords.map(item => ({
-            ...item,
-            id: `${item.word}-${Date.now()}`,
-            dateAdded: new Date().toISOString(),
-            correctCount: 0,
-            incorrectCount: 0,
-        }));
-
-        await db.notebook.bulkAdd(newSavedItems);
-        setNotebook(prev => [...newSavedItems, ...prev].sort((a,b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime()));
+        try {
+            await db.notebook.add(newItem);
+            setNotebook(prev => [newItem, ...prev]);
+        } catch (e) {
+            console.error("Failed to add to notebook:", e);
+            addToast("Failed to save word to notebook.", "error");
+        }
     };
 
-    const handleWordSelection = async (word: string) => {
-        const cleanedWord = word.trim();
-        const lowerCaseWord = cleanedWord.toLowerCase();
+    const handleDeleteFromNotebook = async (id: string) => {
+        try {
+            await db.notebook.delete(id);
+            setNotebook(prev => prev.filter(item => item.id !== id));
+        } catch (e) {
+             console.error("Failed to delete from notebook:", e);
+             addToast("Failed to delete word from notebook.", "error");
+        }
+    };
 
-        if (!lowerCaseWord || translatingWord) return;
-    
-        const existingPair = selectedInteractiveWords.find(p => p.word.toLowerCase() === lowerCaseWord);
-    
-        if (existingPair) {
-            setSelectedInteractiveWords(prev => prev.filter(p => p.word.toLowerCase() !== lowerCaseWord));
-        } else {
-            setTranslatingWord(lowerCaseWord);
-            let translation: string | null = null;
-    
-            const vocabItem = gameState?.vocabulary.find(v => v.word.toLowerCase() === lowerCaseWord);
-            if (vocabItem) {
-                translation = vocabItem.translation;
-            } else if (userSettings && gameState) {
-                translation = await translateWord(
-                    cleanedWord, 
-                    userSettings.sourceLanguage, 
-                    userSettings.targetLanguage,
-                    gameState.story,
-                    gameState.translatedStory
-                );
-            }
-            
-            if (translation) {
-                setSelectedInteractiveWords(prev => [...prev, { word: cleanedWord, translation: translation! }]);
-            } else {
-                console.error("Could not translate word:", cleanedWord);
-            }
-    
+    const handleUpdateNotebook = async (updatedNotebook: SavedVocabularyItem[]) => {
+        try {
+            await db.notebook.bulkPut(updatedNotebook);
+            setNotebook(updatedNotebook.sort((a,b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime()));
+        } catch (e) {
+            console.error("Failed to update notebook:", e);
+            addToast("Failed to update notebook progress.", "error");
+        }
+    };
+
+    const handleWordClick = async (word: string) => {
+        const lowerCaseWord = word.toLowerCase();
+        const existingIndex = selectedInteractiveWords.findIndex(item => item.word.toLowerCase() === lowerCaseWord);
+        if (existingIndex !== -1) {
+            setSelectedInteractiveWords(prev => prev.filter(item => item.word.toLowerCase() !== lowerCaseWord));
+            return;
+        }
+        if (!userSettings || !gameState) return;
+        setTranslatingWord(lowerCaseWord);
+        try {
+            const translation = await translateWord(word, userSettings.sourceLanguage, userSettings.targetLanguage, gameState.story, gameState.translatedStory);
+            setSelectedInteractiveWords(prev => [...prev, { word, translation }]);
+        } catch (e) {
+            addToast((e as Error).message, 'error');
+        } finally {
             setTranslatingWord(null);
         }
     };
 
-    const handleDeleteWord = async (id: string) => {
-        await db.notebook.delete(id);
-        setNotebook(prev => prev.filter(item => item.id !== id));
-    };
-
-    const handleUpdateNotebook = async (newNotebook: SavedVocabularyItem[]) => {
-        await db.notebook.bulkPut(newNotebook);
-        setNotebook(newNotebook.sort((a,b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime()));
-    }
-
-    const handleReturnToMenu = () => {
-        setAppScreen(AppScreen.SETUP);
-        setError(null);
-        setLoadingState(LoadingState.IDLE);
-    };
-    
-    const handleToggleImageGeneration = () => {
-        if (userSettings) {
-            const newSettings = { ...userSettings, generateImages: !userSettings.generateImages };
-            setUserSettings(newSettings);
-            db.session.update(SESSION_ID, { userSettings: newSettings });
-        }
-    };
-    
-    const handleClearData = async () => {
-        if (window.confirm("Are you sure you want to delete all saved game data? This cannot be undone.")) {
-            await clearAllData();
-            setHasSaveData(false);
-            setError(null);
+    const handleSaveSelectedWords = async () => {
+        const wordsToSave = unsavedSelectedWords;
+        if (wordsToSave.length === 0) return;
+        const newItems: SavedVocabularyItem[] = wordsToSave.map(item => ({
+            ...item, id: crypto.randomUUID(), dateAdded: new Date().toISOString(),
+            correctCount: 0, incorrectCount: 0,
+        }));
+        try {
+            await db.notebook.bulkAdd(newItems);
+            setNotebook(prev => [...newItems, ...prev].sort((a,b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime()));
+            addToast(`${newItems.length} word(s) saved to notebook!`, "success");
+        } catch (e) {
+             console.error("Failed to bulk add to notebook:", e);
+             addToast("Failed to save selected words.", "error");
         }
     };
 
-    const handleSpeak = (type: 'story' | 'word', key: string, text: string, langName: string) => {
-        const currentSpeakingKey = speakingState?.type === type && speakingState?.key === key;
-        
-        if (currentSpeakingKey) {
-            stop();
+    const handleSpeak = (text: string, lang: 'source' | 'target' | 'source_word', key: string) => {
+        stop();
+        if (speakingState?.key === key) {
             setSpeakingState(null);
-        } else {
-            setSpeakingState({ type, key });
-            const langCode = langToCode(langName);
-            speak(text, langCode, () => setSpeakingState(null), () => setSpeakingState(null));
+            return;
+        }
+        const langName = lang === 'target' ? userSettings?.targetLanguage : userSettings?.sourceLanguage;
+        if (!langName) return;
+        const langCode = langToCode(langName);
+        const type = lang === 'source_word' ? 'word' : 'story';
+        setSpeakingState({ type, key });
+        speak(text, langCode, () => setSpeakingState(null), () => {
+            setSpeakingState(null);
+            addToast(`Could not play audio for ${langName}.`, "error");
+        });
+    };
+
+    const handleToggleImageGeneration = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const isEnabled = e.target.checked;
+        if (userSettings) {
+            setUserSettings({ ...userSettings, generateImages: isEnabled });
+            addToast(`Image generation ${isEnabled ? 'enabled' : 'disabled'}.`, 'success', 3000);
         }
     };
-    
-    const isLoading = loadingState !== LoadingState.IDLE && loadingState !== LoadingState.ERROR;
-    const isAtLatestStep = currentStepIndex === history.length - 1;
 
-    if (appScreen === AppScreen.SETUP) {
-        return <GameSetup 
-            onStartGame={handleStartGame} 
-            isLoading={isLoading || isRecovering} 
-            onContinueGame={handleContinueGame}
-            hasSaveData={hasSaveData}
-            error={error}
-            successMessage={successMessage}
-            onLoadGame={handleLoadGameFromFile}
-            onClearData={handleClearData}
-        />;
-    }
+    const highlightedWordsForText = useMemo<HighlightedWord[]>(() => selectedInteractiveWords.map((item, i) => ({ word: item.word, index: i + 1 })), [selectedInteractiveWords]);
+    const highlightedTranslationsForText = useMemo<HighlightedWord[]>(() => selectedInteractiveWords.map((item, i) => ({ word: item.translation, index: i + 1 })), [selectedInteractiveWords]);
+
+    const isLoading = loadingState === LoadingState.GENERATING_STORY || loadingState === LoadingState.GENERATING_IMAGE || isRecovering;
+
+    const renderScreen = () => {
+        switch (appScreen) {
+            case AppScreen.NOTEBOOK:
+                return <NotebookView notebook={notebook} onUpdateNotebook={handleUpdateNotebook} onClose={() => setAppScreen(AppScreen.GAME)} onDelete={handleDeleteFromNotebook} />;
+            case AppScreen.GAME:
+                if (!gameState || !userSettings) {
+                    return (
+                        <div className="flex h-screen items-center justify-center">
+                            <p>Error: Game state is missing. <button onClick={() => setAppScreen(AppScreen.SETUP)} className="underline">Go to Setup</button></p>
+                        </div>
+                    );
+                }
+                return (
+                    <div className="min-h-screen flex flex-col md:flex-row">
+                        <div className={`relative w-full md:w-1/2 bg-black flex items-center justify-center group transition-all duration-500 ${isImageFullscreen ? 'fixed inset-0 z-40' : ''}`} onClick={() => currentImageUrl && setIsImageFullscreen(!isImageFullscreen)}>
+                            {loadingState === LoadingState.GENERATING_IMAGE ? (
+                                <div className="text-center"><LoadingSpinner /><p className="mt-4 text-gray-400">Conjuring visuals...</p></div>
+                            ) : currentImageUrl ? (
+                                <>
+                                    <img src={currentImageUrl} alt="Adventure scene" className={`object-contain w-full h-full transition-opacity duration-500 ${isImageFullscreen ? 'cursor-zoom-out' : 'cursor-zoom-in'}`} />
+                                    <div className="absolute bottom-2 right-2 bg-black/50 p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 1v4m0 0h-4m4 0l-5-5" /></svg>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="text-center text-gray-500 flex flex-col items-center">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-24 w-24" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                    <p className="mt-2">Image generation is disabled.</p>
+                                </div>
+                            )}
+                        </div>
+                        <main className="w-full md:w-1/2 p-4 md:p-8 flex flex-col overflow-y-auto" style={{maxHeight: '100vh'}}>
+                            <header className="flex justify-between items-center mb-4 border-b border-gray-700 pb-4 flex-wrap gap-y-2">
+                                <h1 className="text-2xl font-bold text-purple-300">{userSettings.genre}</h1>
+                                <div className="flex gap-2 items-center flex-wrap">
+                                    <div className="flex items-center gap-2 text-sm mr-4">
+                                        <input
+                                            type="checkbox"
+                                            id="inGameImageToggle"
+                                            checked={userSettings.generateImages}
+                                            onChange={handleToggleImageGeneration}
+                                            className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500 bg-gray-800"
+                                        />
+                                        <label htmlFor="inGameImageToggle" className="text-gray-300">Generate Images</label>
+                                    </div>
+                                    <button onClick={() => setAppScreen(AppScreen.NOTEBOOK)} className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors">Notebook ({notebook.length})</button>
+                                    <button onClick={handleManualSave} className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors">Save</button>
+                                    <button onClick={() => setAppScreen(AppScreen.SETUP)} className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors">Menu</button>
+                                </div>
+                            </header>
+                            <div className="flex justify-between items-center mb-4 text-sm">
+                                <button onClick={() => setCurrentStepIndex(i => i - 1)} disabled={currentStepIndex <= 0 || loadingState !== LoadingState.IDLE} className="py-2 px-5 rounded-lg bg-gray-700/50 hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{"< Previous"}</button>
+                                <span>Step {currentStepIndex + 1} / {history.length}</span>
+                                <button onClick={() => setCurrentStepIndex(i => i + 1)} disabled={currentStepIndex >= history.length - 1 || loadingState !== LoadingState.IDLE} className="py-2 px-5 rounded-lg bg-gray-700/50 hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{"Next >"}</button>
+                            </div>
+                            {loadingState === LoadingState.GENERATING_STORY ? (
+                                <div className="flex-grow flex flex-col justify-center items-center"><LoadingSpinner /><p className="mt-4 text-gray-400">The story unfolds...</p></div>
+                            ) : (
+                                <div className="space-y-6 flex-grow">
+                                    <div className="space-y-4 p-4 bg-gray-800/40 rounded-lg">
+                                        <div className="flex justify-between items-center">
+                                            <h2 className="text-xl font-bold">{userSettings.sourceLanguage}</h2>
+                                            <button onClick={() => handleSpeak(gameState.story, 'source', `story-source-${currentStepIndex}`)} className="p-1 rounded-full hover:bg-gray-700 transition-colors" title={`Speak ${userSettings.sourceLanguage}`}>{speakingState?.key === `story-source-${currentStepIndex}` ? '...' : '🔊'}</button>
+                                        </div>
+                                        <InteractiveText text={gameState.story} onWordClick={handleWordClick} highlightedWords={highlightedWordsForText} lang="source" translatingWord={translatingWord}/>
+                                        <hr className="border-gray-700"/>
+                                        <div className="flex justify-between items-center">
+                                            <h2 className="text-xl font-bold">{userSettings.targetLanguage}</h2>
+                                             <button onClick={() => handleSpeak(gameState.translatedStory, 'target', `story-target-${currentStepIndex}`)} className="p-1 rounded-full hover:bg-gray-700 transition-colors" title={`Speak ${userSettings.targetLanguage}`}>{speakingState?.key === `story-target-${currentStepIndex}` ? '...' : '🔊'}</button>
+                                        </div>
+                                        <InteractiveText text={gameState.translatedStory} highlightedWords={highlightedTranslationsForText} lang="target"/>
+                                    </div>
+                                    <div className="p-4 bg-gray-800/40 rounded-lg">
+                                        <h3 className="text-lg font-bold mb-3">Vocabulary</h3>
+                                        <ul className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2">
+                                            {gameState.vocabulary.map((item, index) => {
+                                                const isSaved = notebookWordsSet.has(item.word.toLowerCase());
+                                                return (
+                                                    <li key={index} className="flex justify-between items-center group">
+                                                        <div className="flex items-center gap-2">
+                                                            <button onClick={() => handleSpeak(item.word, 'source_word', `vocab-${currentStepIndex}-${index}`)} title={`Speak ${userSettings.sourceLanguage}`} className="text-gray-400 hover:text-white">{speakingState?.key === `vocab-${currentStepIndex}-${index}` ? '...' : '🔊'}</button>
+                                                            <span><span className="font-semibold">{item.word}</span>: <span className="text-gray-400">{item.translation}</span></span>
+                                                        </div>
+                                                        <button onClick={() => handleAddToNotebook(item)} disabled={isSaved} className="text-xs text-purple-400 hover:text-purple-300 disabled:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity" title={isSaved ? "In notebook" : "Add"}>{isSaved ? '✓' : '+'}</button>
+                                                    </li>
+                                                );
+                                            })}
+                                        </ul>
+                                    </div>
+                                    {selectedInteractiveWords.length > 0 && (
+                                         <div className="p-4 bg-gray-800/40 rounded-lg animate-fade-in">
+                                            <div className="flex justify-between items-center mb-3">
+                                                <h3 className="text-lg font-bold">Selected Words</h3>
+                                                {unsavedSelectedWords.length > 0 && <button onClick={handleSaveSelectedWords} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-1 px-3 rounded-md text-sm">Save All ({unsavedSelectedWords.length})</button>}
+                                            </div>
+                                            <ul className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2">
+                                                {selectedInteractiveWords.map((item, index) => {
+                                                    const isSaved = notebookWordsSet.has(item.word.toLowerCase());
+                                                    return (
+                                                        <li key={index} className="flex justify-between items-center group">
+                                                            <div className="flex items-center gap-2">
+                                                                <button onClick={() => handleSpeak(item.word, 'source_word', `selected-${currentStepIndex}-${index}`)} title={`Speak ${userSettings.sourceLanguage}`} className="text-gray-400 hover:text-white">{speakingState?.key === `selected-${currentStepIndex}-${index}` ? '...' : '🔊'}</button>
+                                                                <span><span className="font-semibold text-yellow-300">{item.word}</span>: <span className="text-gray-400">{item.translation}</span></span>
+                                                            </div>
+                                                            <button onClick={() => handleAddToNotebook(item)} disabled={isSaved} className="text-xs text-purple-400 hover:text-purple-300 disabled:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity" title={isSaved ? "In notebook" : "Add"}>{isSaved ? '✓' : '+'}</button>
+                                                        </li>
+                                                    );
+                                                })}
+                                            </ul>
+                                        </div>
+                                    )}
+                                    {currentStepIndex === history.length - 1 ? (
+                                        <div className="space-y-3"><h3 className="text-lg font-bold">What do you do next?</h3>{gameState.choices.map((choice, index) => <ChoiceButton key={index} item={choice} onClick={() => handleMakeChoice(index)} disabled={loadingState !== LoadingState.IDLE} />)}</div>
+                                    ) : (
+                                        <div className="p-4 bg-gray-800/40 rounded-lg"><h3 className="text-lg font-bold mb-2">Your Choice</h3><ChoiceButton item={gameState.choices[gameState.selectedChoiceIndex!]} onClick={() => {}} disabled={true} isSelected={true} /></div>
+                                    )}
+                                </div>
+                            )}
+                             {loadingState === LoadingState.ERROR && error && (
+                                <div className="mt-4 p-4 bg-red-900/50 border border-red-700/80 rounded-lg text-red-300">
+                                    <p className="font-bold">An Error Halted Your Adventure</p>
+                                    <p className="text-sm mb-2">{error}</p>
+                                    <button onClick={() => setLoadingState(LoadingState.IDLE)} className="underline text-sm">Dismiss</button>
+                                </div>
+                            )}
+                            {showStorageWarning && (
+                                <div className="mt-4 p-4 bg-yellow-900/50 border border-yellow-700/80 rounded-lg text-yellow-300 text-sm">
+                                    <strong>Storage Warning:</strong> Using {saveDataInfo?.size} MB. Consider saving and starting a new game soon.
+                                </div>
+                            )}
+                        </main>
+                    </div>
+                );
+            case AppScreen.SETUP:
+            default:
+                 return <GameSetup onStartGame={handleStartGame} isLoading={isLoading} onLoadGame={handleLoadGameFromFile} onContinueGame={handleContinueGame} hasSaveData={hasSaveData} error={error} onClearData={handleClearData} onToast={addToast} />;
+        }
+    };
 
     return (
-        <div className="min-h-screen bg-gray-900 text-gray-200 p-4 sm:p-6 md:p-8 relative">
-            {showSaveConfirmation && (
-                <div className="fixed top-5 right-5 bg-green-600 text-white py-2 px-5 rounded-lg shadow-lg z-50 animate-save-confirm">
-                    Game Saved to File!
+        <div className="min-h-screen bg-gray-900 text-gray-200">
+            {renderScreen()}
+            <div aria-live="assertive" className="pointer-events-none fixed inset-0 flex items-end px-4 py-6 sm:items-start sm:p-6 z-50">
+                <div className="flex w-full flex-col items-center space-y-4 sm:items-end">
+                    {toasts.map(toast => (
+                        <Toast key={toast.id} message={toast.message} type={toast.type} onClose={() => removeToast(toast.id)} />
+                    ))}
                 </div>
-            )}
-            <div className="max-w-7xl mx-auto">
-                <header className="flex flex-wrap justify-between items-center mb-6 gap-4">
-                    <div>
-                      <h1 className="text-3xl md:text-4xl font-bold text-purple-300 tracking-wider">Gemini LinguaQuest</h1>
-                      <p className="text-gray-400 text-sm">{userSettings?.genre} ({userSettings?.sourceLanguage} to {userSettings?.targetLanguage})</p>
-                       {saveDataInfo && (
-                        <p className="text-gray-500 text-xs">
-                          {saveDataInfo.steps} steps in history (~{saveDataInfo.size} MB).
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center flex-wrap gap-2">
-                        <button onClick={handleGoBack} disabled={currentStepIndex <= 0 || isLoading} className="bg-gray-800/70 hover:bg-gray-700/90 text-purple-300 font-semibold py-2 px-4 border border-gray-600/80 rounded-lg shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed">Go Back</button>
-                        <button onClick={handleGoNext} disabled={isAtLatestStep || isLoading} className="bg-gray-800/70 hover:bg-gray-700/90 text-purple-300 font-semibold py-2 px-4 border border-gray-600/80 rounded-lg shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed">Go Next</button>
-                        <button onClick={handleManualSave} disabled={isLoading} className="bg-gray-800/70 hover:bg-gray-700/90 text-purple-300 font-semibold py-2 px-4 border border-gray-600/80 rounded-lg shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed" title="Save full game data to file">Save Game</button>
-                        <button onClick={() => setAppScreen(AppScreen.NOTEBOOK)} className="bg-gray-800/70 hover:bg-gray-700/90 text-purple-300 font-semibold py-2 px-4 border border-gray-600/80 rounded-lg shadow-md transition-all">Notebook ({notebook.length})</button>
-                        <div className="flex items-center gap-2 bg-gray-800/70 border border-gray-600/80 rounded-lg px-3 py-1.5">
-                            <label htmlFor="image-toggle" className="text-purple-300 font-semibold text-sm cursor-pointer" title="Toggle Image Generation">Images</label>
-                            <button
-                                id="image-toggle"
-                                onClick={handleToggleImageGeneration}
-                                disabled={isLoading}
-                                className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-purple-500 ${
-                                    userSettings?.generateImages ? 'bg-green-500' : 'bg-gray-600'
-                                }`}
-                            >
-                                <span
-                                    className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform duration-300 ${
-                                        userSettings?.generateImages ? 'translate-x-6' : 'translate-x-1'
-                                    }`}
-                                />
-                            </button>
-                        </div>
-                        <button onClick={handleReturnToMenu} className="bg-gray-800/70 hover:bg-gray-700/90 text-purple-300 font-semibold py-2 px-4 border border-gray-600/80 rounded-lg shadow-md transition-all">Main Menu</button>
-                    </div>
-                </header>
-
-                {appScreen === AppScreen.NOTEBOOK && (
-                    <main className="bg-black bg-opacity-30 rounded-2xl shadow-2xl shadow-purple-900/20 overflow-hidden min-h-[75vh]">
-                       <NotebookView notebook={notebook} onUpdateNotebook={handleUpdateNotebook} onClose={() => setAppScreen(AppScreen.GAME)} onDelete={handleDeleteWord} />
-                    </main>
-                )}
-
-                {appScreen === AppScreen.GAME && (
-                    <>
-                        {showStorageWarning && (
-                            <div className="bg-yellow-900/60 border border-yellow-700/80 text-yellow-200 p-4 rounded-lg mb-4 text-center animate-fade-in">
-                                <h3 className="font-bold text-lg mb-2 flex items-center justify-center gap-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                                    Storage Warning
-                                </h3>
-                                <p className="mb-3 text-sm">Your adventure's data is getting large! To prevent potential data loss from browser storage limits, it is highly recommended to save your progress to a file.</p>
-                                <button onClick={handleManualSave} disabled={isLoading} className="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded transition-colors disabled:opacity-50">
-                                Save to File Now
-                                </button>
-                            </div>
-                        )}
-                        <main className="bg-black bg-opacity-30 rounded-2xl shadow-2xl shadow-purple-900/20 overflow-hidden">
-                            <div className="relative w-full h-64 lg:h-80 bg-gray-800 group">
-                                {(loadingState !== LoadingState.IDLE || error || !currentImageUrl || !userSettings?.generateImages || isRecovering) && (
-                                    <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm flex flex-col justify-center items-center z-10 p-4 text-center">
-                                        {(isLoading || isRecovering) && <LoadingSpinner />}
-                                        <p className="mt-4 text-gray-400">{getLoadingMessage()}</p>
-                                        {error && <p className="mt-2 text-red-400">{error}</p>}
-                                        {(!userSettings?.generateImages && !isLoading && !isRecovering) && <p className="mt-2 text-gray-500">Image generation is disabled.</p>}
-                                        {error && <button onClick={handleReturnToMenu} className="mt-4 bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition-colors">Return to Menu</button>}
-                                    </div>
-                                )}
-                                {currentImageUrl && (
-                                    <>
-                                        <img src={currentImageUrl} alt="Adventure Scene" className={`w-full h-full object-contain transition-opacity duration-1000 ${isLoading || !userSettings?.generateImages || isRecovering ? 'opacity-30' : 'opacity-100'}`} />
-                                        {!isLoading && !isRecovering && userSettings?.generateImages && (
-                                            <button
-                                                onClick={() => setIsImageFullscreen(true)}
-                                                className="absolute top-2 right-2 bg-black/50 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100 outline-none focus:ring-2 focus:ring-purple-400 z-20"
-                                                aria-label="View image in fullscreen"
-                                            >
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 1v4m0 0h-4m4 0l-5-5" />
-                                                </svg>
-                                            </button>
-                                        )}
-                                    </>
-                                )}
-                            </div>
-                            
-                            <div className="p-6 md:p-8">
-                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-                                    <div className="lg:col-span-1">
-                                        <div className="flex items-center gap-2 mb-3">
-                                            <h2 className="text-xl font-bold text-purple-300">{userSettings?.sourceLanguage}</h2>
-                                            <button 
-                                                onClick={() => handleSpeak('story', 'source', gameState?.story ?? '', userSettings?.sourceLanguage ?? 'English')} 
-                                                className="text-purple-300 hover:text-purple-200"
-                                                title={`Read ${userSettings?.sourceLanguage} story`}
-                                            >
-                                                {speakingState?.type === 'story' && speakingState?.key === 'source' ? (
-                                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v10H7z"/></svg>
-                                                ) : (
-                                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7z"/></svg>
-                                                )}
-                                            </button>
-                                        </div>
-                                        <InteractiveText
-                                            text={gameState?.story ?? ''}
-                                            onWordClick={handleWordSelection}
-                                            highlightedWords={selectedInteractiveWords.map((p, i) => ({ word: p.word, index: i + 1 }))}
-                                            lang="source"
-                                            translatingWord={translatingWord}
-                                        />
-                                    </div>
-                                    <div className="lg:col-span-1">
-                                        <div className="flex items-center gap-2 mb-3">
-                                            <h2 className="text-xl font-bold text-purple-300">{userSettings?.targetLanguage}</h2>
-                                             <button 
-                                                onClick={() => handleSpeak('story', 'target', gameState?.translatedStory ?? '', userSettings?.targetLanguage ?? 'English')} 
-                                                className="text-purple-300 hover:text-purple-200"
-                                                title={`Read ${userSettings?.targetLanguage} story`}
-                                            >
-                                                {speakingState?.type === 'story' && speakingState?.key === 'target' ? (
-                                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v10H7z"/></svg>
-                                                ) : (
-                                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7z"/></svg>
-                                                )}
-                                            </button>
-                                        </div>
-                                        <InteractiveText
-                                            text={gameState?.translatedStory ?? ''}
-                                            highlightedWords={selectedInteractiveWords.map((p, i) => ({ word: p.translation, index: i + 1 }))}
-                                            lang="target"
-                                        />
-                                    </div>
-                                    <div className="lg:col-span-1">
-                                        <h2 className="text-xl font-bold text-purple-300 mb-3">Vocabulary</h2>
-                                        {gameState?.vocabulary && gameState.vocabulary.length > 0 ? (
-                                            <ul className="space-y-2">
-                                                {gameState.vocabulary.map((item, index) => (
-                                                    <li key={index} className="flex items-center justify-between text-gray-300">
-                                                        <div className="flex items-center gap-2">
-                                                            <button 
-                                                                onClick={() => handleSpeak('word', item.word, item.word, userSettings?.sourceLanguage ?? 'English')}
-                                                                className="text-gray-400 hover:text-purple-300"
-                                                                title={`Pronounce "${item.word}"`}
-                                                            >
-                                                                {speakingState?.type === 'word' && speakingState?.key === item.word ? (
-                                                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                                                                ) : (
-                                                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                                                                )}
-                                                            </button>
-                                                            <span>{item.word}: <span className="text-gray-400">{item.translation}</span></span>
-                                                        </div>
-                                                        <button onClick={() => handleSaveWord(item)} title="Save to notebook" className="text-gray-500 hover:text-purple-400 disabled:text-gray-700 disabled:cursor-not-allowed" disabled={notebookWordsSet.has(item.word.toLowerCase())}>
-                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                                <path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-3.125L5 18V4z" />
-                                                            </svg>
-                                                        </button>
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        ) : ( <p className="text-gray-500">No new vocabulary.</p>)}
-
-                                        {selectedInteractiveWords.length > 0 && (
-                                            <div className="mt-6">
-                                                <div className="flex justify-between items-center mb-2">
-                                                    <h3 className="text-base font-bold text-purple-300 flex items-center gap-2">
-                                                        Selected Words
-                                                    </h3>
-                                                    <button
-                                                        onClick={handleSaveAllSelectedWords}
-                                                        disabled={unsavedSelectedWords.length === 0}
-                                                        className="bg-purple-600/50 hover:bg-purple-600/80 text-white text-xs font-bold py-1 px-3 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                                        title={unsavedSelectedWords.length > 0 ? `Save ${unsavedSelectedWords.length} new words` : "All selected words are already in notebook"}
-                                                    >
-                                                        Save All ({unsavedSelectedWords.length})
-                                                    </button>
-                                                </div>
-                                                <ul className="space-y-2 p-4 bg-gray-800/50 rounded-lg border border-purple-500/30 animate-fade-in">
-                                                    {selectedInteractiveWords.map((item, index) => (
-                                                        <li key={`${item.word}-${index}`} className="flex items-center justify-between text-gray-300">
-                                                            <div className="flex items-center gap-2">
-                                                                <button 
-                                                                    onClick={() => handleSpeak('word', `selected-${item.word}`, item.word, userSettings?.sourceLanguage ?? 'English')}
-                                                                    className="text-gray-400 hover:text-purple-300"
-                                                                    title={`Pronounce "${item.word}"`}
-                                                                >
-                                                                    {speakingState?.type === 'word' && speakingState?.key === `selected-${item.word}` ? (
-                                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                                                                    ) : (
-                                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                                                                    )}
-                                                                </button>
-                                                                <span><span className="font-bold">{item.word}</span>: <span className="text-gray-400">{item.translation}</span></span>
-                                                            </div>
-                                                            <button onClick={() => handleSaveWord(item)} title="Save to notebook" className="text-gray-500 hover:text-purple-400 disabled:text-gray-700 disabled:cursor-not-allowed" disabled={notebookWordsSet.has(item.word.toLowerCase())}>
-                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                                    <path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-3.125L5 18V4z" />
-                                                                </svg>
-                                                            </button>
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                                
-                                <div className="mt-8">
-                                    <h2 className="text-2xl font-bold text-center text-purple-300 mb-6">Your Next Move</h2>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        {gameState?.choices.map((item, index) => (
-                                            <ChoiceButton
-                                                key={index}
-                                                item={item}
-                                                onClick={() => handleChoice(item)}
-                                                disabled={isLoading || !isAtLatestStep}
-                                                isSelected={gameState.selectedChoiceIndex === index}
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                        </main>
-                    </>
-                )}
             </div>
-            {isImageFullscreen && currentImageUrl && (
-                <div 
-                    className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4 animate-fade-in"
-                    onClick={() => setIsImageFullscreen(false)}
-                >
-                    <img src={currentImageUrl} alt="Fullscreen Adventure Scene" className="max-h-full max-w-full object-contain" />
-                    <button 
-                        onClick={() => setIsImageFullscreen(false)}
-                        className="absolute top-4 right-4 text-white bg-black/50 p-2 rounded-full hover:bg-black/70"
-                        aria-label="Close fullscreen view"
-                    >
-                         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
-                </div>
-            )}
         </div>
     );
 };

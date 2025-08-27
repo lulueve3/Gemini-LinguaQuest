@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { AdventureStep, UserSettings, PromptSuggestion, CharacterProfile } from '../types';
 
@@ -8,7 +9,6 @@ if (!process.env.API_KEY) {
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const storyModel = 'gemini-2.5-flash';
-// Fix: Updated to the recommended image generation model.
 const imageModel = 'imagen-4.0-generate-001';
 
 const characterSchema = {
@@ -130,8 +130,32 @@ For each step, you must provide:
 6. A list of character profiles for any new or changed characters/monsters.
 You must respond ONLY with a valid JSON object matching the provided schema. The story should be continuous and react to the player's choices and initial prompt.`;
 
+const getApiErrorMessage = (error: unknown): string => {
+    const defaultMessage = "An unknown API error occurred. Please check the console for details.";
+    if (error instanceof Error) {
+        const msg = error.message.toLowerCase();
+        if (msg.includes("resource_exhausted") || msg.includes("429")) {
+            return "API rate limit exceeded (RESOURCE_EXHAUSTED). Please wait a moment before trying again.";
+        }
+        if (msg.includes("api key not valid")) {
+            return "The provided API key is invalid. Please ensure it is set correctly.";
+        }
+        if (msg.includes("500") || msg.includes("503")) {
+            return "The AI service is temporarily unavailable (Server Error). Please try again later.";
+        }
+        if (msg.includes("rpc failed") || msg.includes("xhr error")) {
+            return "A network error occurred while communicating with the AI. Please check your connection.";
+        }
+        if (msg.includes("candidate was blocked")) {
+            return "The response was blocked by the safety filter. Please adjust your prompt.";
+        }
+        return error.message;
+    }
+    return String(error) || defaultMessage;
+};
 
-export const generateAdventureStep = async (prompt: string, settings: Omit<UserSettings, 'prompt'>, knownCharacters: CharacterProfile[]): Promise<AdventureStep | 'RPC_ERROR' | null> => {
+
+export const generateAdventureStep = async (prompt: string, settings: Omit<UserSettings, 'prompt'>, knownCharacters: CharacterProfile[]): Promise<AdventureStep> => {
     try {
         const styleInstruction = settings.animeStyle ? `\nVisual Style to maintain: The anime/manga style of "${settings.animeStyle}".` : '';
         
@@ -159,20 +183,16 @@ export const generateAdventureStep = async (prompt: string, settings: Omit<UserS
             return parsedJson as AdventureStep;
         } else {
             console.error("Invalid JSON structure received from Gemini:", parsedJson);
-            return null;
+            throw new Error("Received an invalid or incomplete data structure from the AI.");
         }
 
     } catch (error) {
         console.error("Error generating adventure step:", error);
-        const errorMessage = (error instanceof Error ? error.message : String(error));
-        if (errorMessage.includes("Rpc failed due to xhr error") && errorMessage.includes("error code: 6")) {
-            return 'RPC_ERROR';
-        }
-        return null;
+        throw new Error(getApiErrorMessage(error));
     }
 };
 
-export const generatePromptSuggestion = async (animeName: string): Promise<PromptSuggestion | null> => {
+export const generatePromptSuggestion = async (animeName: string): Promise<PromptSuggestion> => {
     try {
         const fullPrompt = `Based on the anime/manga "${animeName}", generate a detailed suggestion for a text-based RPG. Provide a creative story prompt, a suitable genre, a detailed description of the world and its setting, a list of 2-3 key characters or factions, and a list of 2-3 key events that provide context.`;
 
@@ -194,16 +214,16 @@ export const generatePromptSuggestion = async (animeName: string): Promise<Promp
             return parsedJson as PromptSuggestion;
         } else {
             console.error("Invalid JSON structure received for prompt suggestion:", parsedJson);
-            return null;
+            throw new Error("Received an invalid data structure for the suggestion.");
         }
 
     } catch (error) {
         console.error("Error generating prompt suggestion:", error);
-        return null;
+        throw new Error(getApiErrorMessage(error));
     }
 };
 
-export const generateInspirationIdeas = async (): Promise<string[] | null> => {
+export const generateInspirationIdeas = async (): Promise<string[]> => {
     try {
         const prompt = `Generate a list of exactly 8 diverse and creative ideas for a text-based RPG. The list MUST contain a specific mix of two types of ideas:
 1. **4 ideas** based on popular but varied anime or manga series. Frame them as a unique role-playing scenario for the player. Each of these ideas MUST clearly state the name of the anime/manga it is based on. For example: 'Survive as a scout in Attack on Titan' or 'A rookie devil hunter in the world of Chainsaw Man'.
@@ -228,17 +248,17 @@ Do not repeat the examples given. Each idea must be a short, punchy phrase suita
             return parsedJson.ideas as string[];
         } else {
             console.error("Invalid JSON structure for inspiration ideas:", parsedJson);
-            return null;
+            throw new Error("Received invalid data for inspiration ideas.");
         }
 
     } catch (error) {
         console.error("Error generating inspiration ideas:", error);
-        return null;
+        throw new Error(getApiErrorMessage(error));
     }
 }
 
 
-export const generateAdventureImage = async (prompt: string): Promise<string | 'RATE_LIMITED' | null> => {
+export const generateAdventureImage = async (prompt: string): Promise<string> => {
     try {
         const response = await ai.models.generateImages({
             model: imageModel,
@@ -254,14 +274,10 @@ export const generateAdventureImage = async (prompt: string): Promise<string | '
             const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
             return `data:image/jpeg;base64,${base64ImageBytes}`;
         }
-        return null;
+        throw new Error("Image generation returned no images.");
     } catch (error) {
         console.error("Error generating adventure image:", error);
-        const errorMessage = (error instanceof Error ? error.message : String(error));
-        if (errorMessage.includes("RESOURCE_EXHAUSTED") || errorMessage.includes("429")) {
-            return 'RATE_LIMITED';
-        }
-        return null;
+        throw new Error(getApiErrorMessage(error));
     }
 };
 
@@ -271,7 +287,7 @@ export const translateWord = async (
     targetLang: string,
     sourceText?: string,
     targetText?: string
-): Promise<string | null> => {
+): Promise<string> => {
     try {
         let prompt: string;
 
@@ -326,10 +342,10 @@ Word: "${word}"`;
         }
        
         console.warn("Received an empty translation for:", word);
-        return null;
+        throw new Error("Translation returned an empty response.");
 
     } catch (error) {
         console.error(`Error translating word "${word}":`, error);
-        return null;
+        throw new Error(getApiErrorMessage(error));
     }
 };

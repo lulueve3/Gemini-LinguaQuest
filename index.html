@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -20,21 +21,25 @@
       .transform-style-3d { transform-style: preserve-3d; }
       .rotate-y-180 { transform: rotateY(180deg); }
       .backface-hidden { backface-visibility: hidden; }
-      @keyframes fade-in-out {
-        0% { opacity: 0; transform: translateY(-20px); }
-        10% { opacity: 1; transform: translateY(0); }
-        90% { opacity: 1; transform: translateY(0); }
-        100% { opacity: 0; transform: translateY(-20px); }
-      }
-      .animate-save-confirm {
-        animation: fade-in-out 3s ease-in-out forwards;
-      }
       @keyframes fade-in {
         from { opacity: 0; }
         to { opacity: 1; }
       }
       .animate-fade-in {
         animation: fade-in 0.3s ease-out forwards;
+      }
+      @keyframes toast-in {
+        from {
+          transform: translateX(100%);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(0);
+          opacity: 1;
+        }
+      }
+      .animate-toast-in {
+        animation: toast-in 0.5s cubic-bezier(0.21, 1.02, 0.73, 1) forwards;
       }
     </style>
   <script type="importmap">

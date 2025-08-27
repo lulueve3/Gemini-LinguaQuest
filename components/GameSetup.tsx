@@ -9,8 +9,8 @@ interface GameSetupProps {
     onContinueGame: () => void;
     hasSaveData: boolean;
     error: string | null;
-    successMessage?: string | null;
     onClearData?: () => void;
+    onToast: (message: string, type?: 'error' | 'success') => void;
 }
 
 const GameSetup: React.FC<GameSetupProps> = ({ 
@@ -20,8 +20,8 @@ const GameSetup: React.FC<GameSetupProps> = ({
     onContinueGame, 
     hasSaveData, 
     error,
-    successMessage,
-    onClearData 
+    onClearData,
+    onToast,
 }) => {
     const [prompt, setPrompt] = useState('');
     const [genre, setGenre] = useState('Dark Fantasy');
@@ -29,7 +29,6 @@ const GameSetup: React.FC<GameSetupProps> = ({
     const [targetLanguage, setTargetLanguage] = useState('Vietnamese');
     const [animeName, setAnimeName] = useState('');
     const [isSuggesting, setIsSuggesting] = useState(false);
-    const [suggestionError, setSuggestionError] = useState<string | null>(null);
     const [generateImages, setGenerateImages] = useState(true);
 
     const [inspirationIdeas, setInspirationIdeas] = useState<string[]>([]);
@@ -37,18 +36,20 @@ const GameSetup: React.FC<GameSetupProps> = ({
 
     const fetchInspirations = useCallback(async () => {
         setIsLoadingInspirations(true);
-        const ideas = await generateInspirationIdeas();
-        if (ideas) {
+        try {
+            const ideas = await generateInspirationIdeas();
             setInspirationIdeas(ideas);
-        } else {
+        } catch (e) {
+            onToast((e as Error).message, 'error');
             setInspirationIdeas([
                 'Cyberpunk city run by AI', 'Isekai adventure as a magical chef', 'Vampire detective in neo-noir Tokyo',
                 'Post-apocalyptic survival with giant mechs', 'High school romance with time travel', 'Space opera with warring galactic empires',
                 'Fantasy quest to slay a dragon', 'Modern-day monster hunting agency'
             ]); // Fallback ideas
+        } finally {
+            setIsLoadingInspirations(false);
         }
-        setIsLoadingInspirations(false);
-    }, []);
+    }, [onToast]);
 
     useEffect(() => {
         fetchInspirations();
@@ -57,16 +58,14 @@ const GameSetup: React.FC<GameSetupProps> = ({
     const handleSuggestPrompt = async (inspiration?: string) => {
         const idea = (inspiration || animeName).trim();
         if (!idea) {
-            setSuggestionError("Please enter an anime, manga title, or genre.");
+            onToast("Please enter an anime, manga title, or genre.", "error");
             return;
         }
         setIsSuggesting(true);
-        setSuggestionError(null);
         setAnimeName(idea);
 
-        const result = await generatePromptSuggestion(idea);
-
-        if (result) {
+        try {
+            const result = await generatePromptSuggestion(idea);
             const fullPrompt = `--- World Context ---
 World: ${result.worldDescription}
 
@@ -82,10 +81,11 @@ ${result.prompt}`;
             
             setPrompt(fullPrompt.trim());
             setGenre(result.genre);
-        } else {
-            setSuggestionError("Could not generate a suggestion. Please try a different title or write your own prompt.");
+        } catch (e) {
+             onToast((e as Error).message, 'error');
+        } finally {
+            setIsSuggesting(false);
         }
-        setIsSuggesting(false);
     };
 
     const handleInspirationClick = (idea: string) => {
@@ -96,11 +96,15 @@ ${result.prompt}`;
         e.preventDefault();
 
         if (!prompt.trim()) {
-            alert('Please enter a story prompt.');
+            onToast('Please enter a story prompt.', 'error');
+            return;
+        }
+        if (!sourceLanguage.trim() || !targetLanguage.trim()) {
+            onToast('Please enter both source and target languages.', 'error');
             return;
         }
         if (sourceLanguage.trim().toLowerCase() === targetLanguage.trim().toLowerCase()) {
-            alert('Source and Target languages must be different.');
+            onToast('Source and Target languages must be different.', 'error');
             return;
         }
         
@@ -185,7 +189,6 @@ ${result.prompt}`;
                                         {isSuggesting ? 'Thinking...' : 'Suggest'}
                                     </button>
                                 </div>
-                                {suggestionError && <p className="text-red-400 text-sm mt-2">{suggestionError}</p>}
                                 <div className="mt-4">
                                     {isLoadingInspirations ? (
                                         <p className="text-gray-500 text-sm">Generating fresh ideas...</p>
@@ -309,34 +312,26 @@ ${result.prompt}`;
                                 type="button"
                                 onClick={handleLoadClick}
                                 disabled={isLoading}
-                                className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg transition-colors w-full sm:w-auto disabled:opacity-50"
+                                className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg transition-colors w-full sm:w-auto disabled:opacity-50"
                             >
                                 Load from File
                             </button>
+                             <input type="file" id="loadGameInput" className="hidden" accept=".json" onChange={handleFileChange} />
                         </div>
+                         {isCorruptedSaveError && onClearData && (
+                            <div className="mt-4 text-center text-sm text-red-300 bg-red-900/40 p-3 rounded-lg border border-red-700/60 max-w-md mx-auto">
+                                <p className="mb-2">Your saved game data appears to be corrupted or incompatible.</p>
+                                <button
+                                    onClick={onClearData}
+                                    className="underline hover:text-white"
+                                >
+                                    Click here to clear the corrupted data and start fresh.
+                                </button>
+                            </div>
+                        )}
                     </div>
-
-                     {error && (
-                        <div className="mt-6 p-4 bg-red-900/50 border border-red-700/80 rounded-lg text-red-300">
-                            <p className="font-bold">An Error Occurred</p>
-                            <p className="text-sm">{error}</p>
-                             {isCorruptedSaveError && onClearData && (
-                                <button onClick={onClearData} className="mt-3 text-sm underline hover:text-white">Clear corrupted data and start fresh?</button>
-                            )}
-                        </div>
-                    )}
-                    {successMessage && (
-                        <div className="mt-6 p-4 bg-green-900/50 border border-green-700/80 rounded-lg text-green-300">
-                            <p>{successMessage}</p>
-                        </div>
-                    )}
                 </div>
             </div>
-
-            <footer className="text-center mt-8 pb-4">
-                {onClearData && <button onClick={onClearData} className="text-xs text-gray-600 hover:text-gray-400 underline">Clear All Data</button>}
-                <input type="file" id="loadGameInput" className="hidden" accept=".json" onChange={handleFileChange} />
-            </footer>
         </div>
     );
 };
