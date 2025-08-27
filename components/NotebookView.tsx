@@ -57,12 +57,12 @@ const Flashcard: React.FC<{ card: SavedVocabularyItem; onAnswer: (result: 'corre
 
 
     return (
-        <div className="w-full max-w-md mx-auto">
-            <div className="relative h-64 perspective-1000">
+        <div className="w-full max-w-xs mx-auto">
+            <div className="relative w-full h-64 perspective-1000 border border-gray-600 rounded-lg">
                 <div
                     ref={cardRef}
                     style={style}
-                    className="absolute w-full h-full cursor-grab active:cursor-grabbing"
+                    className="absolute inset-0 cursor-grab active:cursor-grabbing select-none"
                     onMouseDown={(e) => handleInteractionStart(e.clientX)}
                     onMouseMove={(e) => (dragStartPos.current ? handleInteractionMove(e.clientX) : null)}
                     onMouseUp={handleInteractionEnd}
@@ -255,6 +255,16 @@ const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook,
         return () => window.removeEventListener('keydown', keyHandler);
     }, [isReviewing, handleNextCard]);
 
+    useEffect(() => {
+        const body = document.body;
+        if (isReviewing || isWordScrambleReviewing) {
+            body.style.userSelect = 'none';
+        } else {
+            body.style.userSelect = '';
+        }
+        return () => { body.style.userSelect = ''; };
+    }, [isReviewing, isWordScrambleReviewing]);
+
 
     if (isWordScrambleReviewing) {
         return (
@@ -309,7 +319,8 @@ const NotebookView: React.FC<NotebookViewProps> = ({ notebook, onUpdateNotebook,
                 <select value={filter} onChange={(e) => setFilter(e.target.value as VocabularyFilter)} className="bg-gray-800 text-gray-200 p-1 rounded">
                     <option value="all">All</option>
                     <option value="today">Today</option>
-                    <option value="normal">Remembered</option>
+                    <option value="remembered">Remembered</option>
+                    <option value="normal">Normal</option>
                     <option value="difficult">Difficult</option>
                 </select>
                 <button onClick={selectAll} className="bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded">Select All</button>

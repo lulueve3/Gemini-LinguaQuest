@@ -87,7 +87,7 @@ const WordScramble: React.FC<WordScrambleProps> = ({ cards, onAnswer, onComplete
   if (!current) return null;
 
   return (
-    <div className="max-w-md mx-auto text-center">
+    <div className="max-w-md mx-auto text-center select-none">
       <h3 className="text-xl font-bold mb-4">Arrange the letters</h3>
       <p className="mb-4 text-gray-400">Meaning: {current.translation}</p>
       <div className="flex flex-wrap justify-center gap-2 mb-4">

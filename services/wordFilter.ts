@@ -1,6 +1,6 @@
 import { SavedVocabularyItem } from '../types';
 
-export type VocabularyFilter = 'all' | 'today' | 'normal' | 'difficult';
+export type VocabularyFilter = 'all' | 'today' | 'remembered' | 'normal' | 'difficult';
 
 const isToday = (dateStr: string): boolean => {
   const date = new Date(dateStr);
@@ -14,10 +14,12 @@ export function filterVocabulary(items: SavedVocabularyItem[], filter: Vocabular
   switch (filter) {
     case 'today':
       return items.filter(i => isToday(i.dateAdded));
+    case 'remembered':
+      return items.filter(i => i.correctCount > i.incorrectCount);
+    case 'normal':
+      return items.filter(i => Math.abs(i.correctCount - i.incorrectCount) <= 1 && (i.correctCount + i.incorrectCount) > 0);
     case 'difficult':
       return items.filter(i => i.incorrectCount > i.correctCount);
-    case 'normal':
-      return items.filter(i => i.incorrectCount <= i.correctCount);
     case 'all':
     default:
       return items;
