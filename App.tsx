@@ -682,12 +682,27 @@ const App: React.FC = () => {
                                             {gameState.vocabulary.map((item, index) => {
                                                 const isSaved = notebookWordsSet.has(item.word.toLowerCase());
                                                 return (
-                                                    <li key={index} className="flex justify-between items-center group">
-                                                        <div className="flex items-center gap-2">
-                                                            <button onClick={() => handleSpeak(item.word, 'source_word', `vocab-${currentStepIndex}-${index}`)} title={`Speak ${userSettings.sourceLanguage}`} className="text-gray-400 hover:text-white">{speakingState?.key === `vocab-${currentStepIndex}-${index}` ? '...' : '🔊'}</button>
+                                                    <li key={index} className="flex justify-between items-start gap-2">
+                                                        <div className="flex items-start gap-2 min-w-0 mr-2">
+                                                            <button onClick={() => handleSpeak(item.word, 'source_word', `vocab-${currentStepIndex}-${index}`)} title={`Speak ${userSettings.sourceLanguage}`} className="text-gray-400 hover:text-white flex-shrink-0 mt-1">{speakingState?.key === `vocab-${currentStepIndex}-${index}` ? '...' : '🔊'}</button>
                                                             <span><span className="font-semibold">{item.word}</span>: <span className="text-gray-400">{item.translation}</span></span>
                                                         </div>
-                                                        <button onClick={() => handleAddToNotebook(item)} disabled={isSaved} className="text-xs text-purple-400 hover:text-purple-300 disabled:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity" title={isSaved ? "In notebook" : "Add"}>{isSaved ? '✓' : '+'}</button>
+                                                        <button 
+                                                            onClick={() => handleAddToNotebook(item)} 
+                                                            disabled={isSaved} 
+                                                            className="p-1.5 rounded-full transition-colors disabled:cursor-not-allowed disabled:bg-gray-700 disabled:opacity-60 bg-purple-600 hover:bg-purple-700 text-white flex-shrink-0"
+                                                            title={isSaved ? "In notebook" : "Add to notebook"}
+                                                        >
+                                                            {isSaved ? (
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                                                    <path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z" />
+                                                                </svg>
+                                                            ) : (
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                                                                </svg>
+                                                            )}
+                                                        </button>
                                                     </li>
                                                 );
                                             })}
@@ -703,12 +718,27 @@ const App: React.FC = () => {
                                                 {selectedInteractiveWords.map((item, index) => {
                                                     const isSaved = notebookWordsSet.has(item.word.toLowerCase());
                                                     return (
-                                                        <li key={index} className="flex justify-between items-center group">
-                                                            <div className="flex items-center gap-2">
-                                                                <button onClick={() => handleSpeak(item.word, 'source_word', `selected-${currentStepIndex}-${index}`)} title={`Speak ${userSettings.sourceLanguage}`} className="text-gray-400 hover:text-white">{speakingState?.key === `selected-${currentStepIndex}-${index}` ? '...' : '🔊'}</button>
+                                                        <li key={index} className="flex justify-between items-start gap-2">
+                                                            <div className="flex items-start gap-2 min-w-0 mr-2">
+                                                                <button onClick={() => handleSpeak(item.word, 'source_word', `selected-${currentStepIndex}-${index}`)} title={`Speak ${userSettings.sourceLanguage}`} className="text-gray-400 hover:text-white flex-shrink-0 mt-1">{speakingState?.key === `selected-${currentStepIndex}-${index}` ? '...' : '🔊'}</button>
                                                                 <span><span className="font-semibold text-yellow-300">{item.word}</span>: <span className="text-gray-400">{item.translation}</span></span>
                                                             </div>
-                                                            <button onClick={() => handleAddToNotebook(item)} disabled={isSaved} className="text-xs text-purple-400 hover:text-purple-300 disabled:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity" title={isSaved ? "In notebook" : "Add"}>{isSaved ? '✓' : '+'}</button>
+                                                            <button 
+                                                                onClick={() => handleAddToNotebook(item)} 
+                                                                disabled={isSaved} 
+                                                                className="p-1.5 rounded-full transition-colors disabled:cursor-not-allowed disabled:bg-gray-700 disabled:opacity-60 bg-purple-600 hover:bg-purple-700 text-white flex-shrink-0"
+                                                                title={isSaved ? "In notebook" : "Add to notebook"}
+                                                            >
+                                                                {isSaved ? (
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z" />
+                                                                    </svg>
+                                                                ) : (
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                                                                    </svg>
+                                                                )}
+                                                            </button>
                                                         </li>
                                                     );
                                                 })}
