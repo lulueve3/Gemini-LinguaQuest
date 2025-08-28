@@ -6,7 +6,11 @@ interface Props {
   onToast: (msg: string, type?: 'error' | 'success') => void;
 }
 
-const maskKey = (key: string) => `${key.slice(0,6)}...`;
+const maskKey = (key: string) => {
+  const head = key.slice(0, 6);
+  const tail = key.slice(-4);
+  return `${head}...${tail}`;
+};
 
 const ApiKeyManager: React.FC<Props> = ({ onBack, onToast }) => {
   const [keys, setKeys] = useState<string[]>([]);

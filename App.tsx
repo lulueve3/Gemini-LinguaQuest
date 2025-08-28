@@ -151,9 +151,7 @@ const App: React.FC = () => {
     const [speakingState, setSpeakingState] = useState<{ type: 'story' | 'word'; key: string } | null>(null);
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-    useEffect(() => {
-        apiKeyService.init();
-    }, []);
+    // API key initialization now happens at startup (index.tsx)
 
 
     const gameState = history[currentStepIndex] ?? null;
@@ -238,7 +236,8 @@ const App: React.FC = () => {
     useEffect(() => {
         apiKeyService.onChange((key, changeType) => {
             if (changeType === 'auto') {
-                addToast(`API key exhausted. Switched to ${key.slice(0,6)}...`, 'success');
+                const masked = `${key.slice(0,6)}...${key.slice(-4)}`;
+                addToast(`API key exhausted. Switched to ${masked}`, 'success');
             }
         });
     }, [addToast]);
