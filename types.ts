@@ -76,6 +76,15 @@ export interface PromptSuggestion {
     worldDescription: string;
     keyCharacters: string[];
     keyEvents: string[];
+    // Extended player-focused details for richer setup
+    playerBackground: string;
+    playerRole: string;
+    playerSkills: string[];
+    startingSituation: string;
+    // Further extensions
+    playerAppearance: string;
+    playerPersonality: string;
+    playerEquipment: string[];
 }
 
 export interface ImageRecord {

@@ -12,6 +12,7 @@ const getClient = () => {
 };
 
 const storyModel = 'gemini-2.5-flash';
+const ideasModel = 'gemini-2.0-flash-lite';
 const imageModel = 'imagen-4.0-generate-001';
 
 const characterSchema = {
@@ -95,15 +96,58 @@ const suggestionSchema = {
         keyCharacters: {
             type: Type.ARRAY,
             items: { type: Type.STRING },
-            description: "A list of 2-3 important characters or factions from the anime/manga relevant to the prompt."
+            description: "A list of important characters or factions relevant to the prompt (any number)."
         },
         keyEvents: {
             type: Type.ARRAY,
             items: { type: Type.STRING },
-            description: "A list of 2-3 significant past or ongoing events that set the stage for the story."
+            description: "A list of significant past or ongoing events that set the stage for the story (any number)."
+        },
+        playerBackground: {
+            type: Type.STRING,
+            description: "A concise backstory for the player's character including origin, motivation, and current status."
+        },
+        playerRole: {
+            type: Type.STRING,
+            description: "The role/class/archetype the player embodies in this world."
+        },
+        playerSkills: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            description: "A list of notable skills or abilities the player's character has (any number; can expand over time)."
+        },
+        startingSituation: {
+            type: Type.STRING,
+            description: "A concrete starting situation or hook describing where the player begins and immediate context or objective."
+        },
+        playerAppearance: {
+            type: Type.STRING,
+            description: "A short but vivid description of the player's character appearance (age, build, attire, notable features)."
+        },
+        playerPersonality: {
+            type: Type.STRING,
+            description: "A concise description of personality traits and demeanor influencing decisions and interactions."
+        },
+        playerEquipment: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            description: "A list of starting equipment or items (any number; can expand as the player progresses)."
         }
     },
-    required: ["prompt", "genre", "worldDescription", "keyCharacters", "keyEvents"]
+    required: [
+        "prompt",
+        "genre",
+        "worldDescription",
+        "keyCharacters",
+        "keyEvents",
+        "playerBackground",
+        "playerRole",
+        "playerSkills",
+        "startingSituation",
+        "playerAppearance",
+        "playerPersonality",
+        "playerEquipment"
+    ]
 };
 
 const inspirationSchema = {
@@ -227,13 +271,20 @@ export const generateAdventureStep = async (prompt: string, settings: Omit<UserS
 
 export const generatePromptSuggestion = async (animeName: string): Promise<PromptSuggestion> => {
     try {
-        const fullPrompt = `Based on the anime/manga "${animeName}", generate a detailed suggestion for a text-based RPG. Provide a creative story prompt, a suitable genre, a detailed description of the world and its setting, a list of 2-3 key characters or factions, and a list of 2-3 key events that provide context.`;
+        const fullPrompt = `Based on the anime/manga "${animeName}", generate a detailed suggestion for a text-based RPG.
+Provide:
+- A creative story prompt to kick off the adventure
+- A suitable genre
+- A richly detailed world description
+- A list of key characters or factions (any number; concise)
+- A list of key events that set context (any number)
+- Player character details: role/class, concise background, skills (any number), appearance, personality, starting equipment (any number), and a concrete starting situation.`;
 
         const response = await callGemini(client => client.models.generateContent({
             model: storyModel,
             contents: fullPrompt,
             config: {
-                systemInstruction: "You are a creative assistant helping a user brainstorm ideas for a role-playing game. You must respond ONLY with a valid JSON object matching the provided schema.",
+                systemInstruction: "You are a creative assistant helping a user brainstorm ideas for a role-playing game. You must respond ONLY with a valid JSON object that strictly matches the provided schema, including detailed player character fields.",
                 responseMimeType: "application/json",
                 responseSchema: suggestionSchema,
                 temperature: 0.7,
@@ -243,7 +294,20 @@ export const generatePromptSuggestion = async (animeName: string): Promise<Promp
         const jsonText = response.text.trim();
         const parsedJson = JSON.parse(jsonText);
         
-        if (parsedJson.prompt && parsedJson.genre && parsedJson.worldDescription && Array.isArray(parsedJson.keyCharacters) && Array.isArray(parsedJson.keyEvents)) {
+        if (
+            parsedJson.prompt &&
+            parsedJson.genre &&
+            parsedJson.worldDescription &&
+            Array.isArray(parsedJson.keyCharacters) &&
+            Array.isArray(parsedJson.keyEvents) &&
+            typeof parsedJson.playerBackground === 'string' &&
+            typeof parsedJson.playerRole === 'string' &&
+            Array.isArray(parsedJson.playerSkills) &&
+            typeof parsedJson.startingSituation === 'string' &&
+            typeof parsedJson.playerAppearance === 'string' &&
+            typeof parsedJson.playerPersonality === 'string' &&
+            Array.isArray(parsedJson.playerEquipment)
+        ) {
             return parsedJson as PromptSuggestion;
         } else {
             console.error("Invalid JSON structure received for prompt suggestion:", parsedJson);
@@ -264,7 +328,7 @@ export const generateInspirationIdeas = async (): Promise<string[]> => {
 Do not repeat the examples given. Each idea must be a short, punchy phrase suitable for a button label. Ensure high variety in the suggestions.`;
         
         const response = await callGemini(client => client.models.generateContent({
-            model: storyModel,
+            model: ideasModel,
             contents: prompt,
             config: {
                 systemInstruction: "You are a creative assistant that provides a JSON object containing a list of exactly 8 short RPG ideas. You must respond ONLY with a valid JSON object matching the provided schema.",

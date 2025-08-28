@@ -76,6 +76,15 @@ Key Characters/Factions:
 
 Key Events:
 - ${result.keyEvents.join('\n- ')}
+
+--- Player Character ---
+Role: ${result.playerRole}
+Background: ${result.playerBackground}
+Appearance: ${result.playerAppearance}
+Personality: ${result.playerPersonality}
+Skills: ${result.playerSkills.join(', ')}
+Equipment: ${result.playerEquipment.join(', ')}
+Starting Situation: ${result.startingSituation}
 --- End Context ---
 
 Adventure Start:
