@@ -355,7 +355,7 @@ Do not repeat the examples given. Each idea must be a short, punchy phrase suita
 }
 
 
-export const generateAdventureImage = async (prompt: string): Promise<string> => {
+export const generateAdventureImage = async (prompt: string): Promise<Blob> => {
     try {
         const response = await callGemini(client => client.models.generateImages({
             model: imageModel,
@@ -369,7 +369,13 @@ export const generateAdventureImage = async (prompt: string): Promise<string> =>
 
         if (response.generatedImages && response.generatedImages.length > 0) {
             const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
-            return `data:image/jpeg;base64,${base64ImageBytes}`;
+            const byteCharacters = atob(base64ImageBytes);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            return new Blob([byteArray], { type: 'image/jpeg' });
         }
         throw new Error("Image generation returned no images.");
     } catch (error) {
