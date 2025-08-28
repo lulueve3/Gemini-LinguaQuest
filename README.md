@@ -8,6 +8,11 @@ This contains everything you need to run your app locally.
 
 View your app in AI Studio: https://ai.studio/apps/drive/1bivuBK_w-N-dESEURIaqkTu-pfDtqnif
 
+## To use the deployed website, you need a Gemini API key
+https://gemini-lingua-quest.vercel.app
+
+https://gemini-linguaquest-1.onrender.com
+
 ## Run Locally
 
 **Prerequisites:**  Node.js
