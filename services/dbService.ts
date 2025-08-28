@@ -3,7 +3,7 @@
 // The default import was not resolving to the class constructor correctly, causing errors
 // where 'version' and 'transaction' methods were not found.
 import { Dexie, type Table } from 'dexie';
-import { UserSettings, CharacterProfile, ChoiceItem, VocabularyItem, SavedVocabularyItem } from '../types';
+import { UserSettings, CharacterProfile, ChoiceItem, VocabularyItem, SavedVocabularyItem, EquipmentItem, SkillItem } from '../types';
 
 export interface HistoryStep {
     id?: number; // Auto-incrementing primary key
@@ -13,6 +13,7 @@ export interface HistoryStep {
     vocabulary: VocabularyItem[];
     imageId: string; // Foreign key to the image blob
     selectedChoiceIndex?: number;
+    summary: string;
 }
 
 export interface ImageRecord {
@@ -25,6 +26,8 @@ export interface SessionData {
     userSettings: UserSettings;
     currentStepIndex: number;
     characterProfiles: CharacterProfile[];
+    equipment: EquipmentItem[];
+    skills: SkillItem[];
 }
 
 class LinguaQuestDB extends Dexie {

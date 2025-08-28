@@ -11,6 +11,7 @@ export enum AppScreen {
   GAME,
   NOTEBOOK,
   API_KEY_MANAGER,
+  PROFILE,
 }
 
 export interface UserSettings {
@@ -32,6 +33,18 @@ export interface ChoiceItem {
     translatedChoice: string;
 }
 
+export interface EquipmentItem {
+    name: string;
+    description: string;
+    equipped: boolean;
+}
+
+export interface SkillItem {
+    name: string;
+    level: number;
+    isActive: boolean;
+}
+
 export interface SavedVocabularyItem extends VocabularyItem {
     id: string;
     dateAdded: string;
@@ -40,13 +53,14 @@ export interface SavedVocabularyItem extends VocabularyItem {
 }
 
 export interface GameState {
-  story: string; 
-  translatedStory: string; 
+  story: string;
+  translatedStory: string;
   imageUrl: string; // Used for save file (base64)
   imageId?: string; // Used for DB reference
   choices: ChoiceItem[];
   vocabulary: VocabularyItem[];
   selectedChoiceIndex?: number;
+  summary: string;
 }
 
 export interface CharacterProfile {
@@ -61,6 +75,9 @@ export interface AdventureStep {
     choices: ChoiceItem[];
     vocabulary: VocabularyItem[];
     characters: CharacterProfile[];
+    summary: string;
+    equipment: EquipmentItem[];
+    skills: SkillItem[];
 }
 
 export interface SaveData {
@@ -68,6 +85,8 @@ export interface SaveData {
     history: GameState[];
     currentStepIndex: number;
     characterProfiles: CharacterProfile[];
+    equipment: EquipmentItem[];
+    skills: SkillItem[];
 }
 
 export interface PromptSuggestion {

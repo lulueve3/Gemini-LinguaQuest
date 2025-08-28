@@ -42,6 +42,26 @@ const choiceSchema = {
     required: ["choice", "translatedChoice"]
 };
 
+const equipmentSchema = {
+    type: Type.OBJECT,
+    properties: {
+        name: { type: Type.STRING, description: "Name of the equipment item." },
+        description: { type: Type.STRING, description: "Brief description or attributes of the item." },
+        equipped: { type: Type.BOOLEAN, description: "Whether the item is currently equipped." }
+    },
+    required: ["name", "description", "equipped"]
+};
+
+const skillSchema = {
+    type: Type.OBJECT,
+    properties: {
+        name: { type: Type.STRING, description: "Name of the skill." },
+        level: { type: Type.INTEGER, description: "Current level or proficiency of the skill." },
+        isActive: { type: Type.BOOLEAN, description: "Whether the skill is currently active or relevant." }
+    },
+    required: ["name", "level", "isActive"]
+};
+
 const responseSchema = {
     type: Type.OBJECT,
     properties: {
@@ -73,9 +93,23 @@ const responseSchema = {
             type: Type.ARRAY,
             items: characterSchema,
             description: "An array describing any NEW characters or monsters introduced in this story segment. If an existing character's appearance changes significantly, include them here with the updated description. Do not include characters that are already known and unchanged."
+        },
+        summary: {
+            type: Type.STRING,
+            description: "A one or two sentence summary of the current step, highlighting key events to remember."
+        },
+        equipment: {
+            type: Type.ARRAY,
+            items: equipmentSchema,
+            description: "The player's current equipment list after this step."
+        },
+        skills: {
+            type: Type.ARRAY,
+            items: skillSchema,
+            description: "The player's current skills with levels and activation status."
         }
     },
-    required: ["story", "translatedStory", "imagePrompt", "choices", "vocabulary", "characters"]
+    required: ["story", "translatedStory", "imagePrompt", "choices", "vocabulary", "characters", "summary", "equipment", "skills"]
 };
 
 const suggestionSchema = {
@@ -256,7 +290,17 @@ export const generateAdventureStep = async (prompt: string, settings: Omit<UserS
         const jsonText = response.text.trim();
         const parsedJson = JSON.parse(jsonText);
         
-        if (parsedJson.story && parsedJson.translatedStory && parsedJson.imagePrompt && Array.isArray(parsedJson.choices) && parsedJson.choices.length === 4 && Array.isArray(parsedJson.vocabulary) && Array.isArray(parsedJson.characters)) {
+        if (
+            parsedJson.story &&
+            parsedJson.translatedStory &&
+            parsedJson.imagePrompt &&
+            typeof parsedJson.summary === 'string' &&
+            Array.isArray(parsedJson.choices) && parsedJson.choices.length === 4 &&
+            Array.isArray(parsedJson.vocabulary) &&
+            Array.isArray(parsedJson.characters) &&
+            Array.isArray(parsedJson.equipment) &&
+            Array.isArray(parsedJson.skills)
+        ) {
             return parsedJson as AdventureStep;
         } else {
             console.error("Invalid JSON structure received from Gemini:", parsedJson);

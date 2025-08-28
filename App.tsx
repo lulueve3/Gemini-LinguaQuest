@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { LoadingState, GameState, AppScreen, UserSettings, VocabularyItem, SavedVocabularyItem, SaveData, ChoiceItem, CharacterProfile, ImageRecord } from './types';
+import { LoadingState, GameState, AppScreen, UserSettings, VocabularyItem, SavedVocabularyItem, SaveData, ChoiceItem, CharacterProfile, ImageRecord, EquipmentItem, SkillItem } from './types';
 import { generateAdventureStep, generateAdventureImage, translateWord } from './services/geminiService';
 import { db, clearAllData, HistoryStep, SessionData } from './services/dbService';
 import { speak, stop } from './services/ttsService';
@@ -8,6 +8,7 @@ import ChoiceButton from './components/ChoiceButton';
 import LoadingSpinner from './components/LoadingSpinner';
 import GameSetup from './components/GameSetup';
 import NotebookView from './components/NotebookView';
+import CharacterProfileView from './components/CharacterProfileView';
 import Toast from './components/Toast';
 import ApiKeyManager from './components/ApiKeyManager';
 import apiKeyService from './services/apiKeyService';
@@ -136,6 +137,8 @@ const App: React.FC = () => {
     const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
     const [history, setHistory] = useState<GameState[]>([]);
     const [characterProfiles, setCharacterProfiles] = useState<CharacterProfile[]>([]);
+    const [equipment, setEquipment] = useState<EquipmentItem[]>([]);
+    const [skills, setSkills] = useState<SkillItem[]>([]);
     const [currentStepIndex, setCurrentStepIndex] = useState<number>(-1);
     const [loadingState, setLoadingState] = useState<LoadingState>(LoadingState.IDLE);
     const [error, setError] = useState<string | null>(null);
@@ -250,7 +253,7 @@ const App: React.FC = () => {
     const updateSaveDataInfo = useCallback(async () => {
         if (history.length > 0) {
             try {
-                const jsonBytes = JSON.stringify({ userSettings, history, currentStepIndex, characterProfiles }).length;
+                const jsonBytes = JSON.stringify({ userSettings, history, currentStepIndex, characterProfiles, equipment, skills }).length;
                 const images = await db.images.toArray();
                 const imageBytes = images.reduce((sum, record) => sum + record.blob.size, 0);
                 const totalBytes = jsonBytes + imageBytes;
@@ -276,7 +279,7 @@ const App: React.FC = () => {
             setShowStorageWarning(false);
             setHasWarnedStorage(false);
         }
-    }, [history, userSettings, currentStepIndex, characterProfiles, addToast, hasWarnedStorage]);
+    }, [history, userSettings, currentStepIndex, characterProfiles, equipment, skills, addToast, hasWarnedStorage]);
 
     useEffect(() => {
         updateSaveDataInfo();
@@ -296,7 +299,7 @@ const App: React.FC = () => {
             });
 
             const initialStep = await generateAdventureStep(`New Game: ${settings.prompt}`, settings, []);
-            
+
             let imageUrl = '';
             let imageId: string | undefined = undefined;
             if (settings.generateImages) {
@@ -306,12 +309,15 @@ const App: React.FC = () => {
                 await db.images.put({ id: imageId, blob });
             }
 
-            const newGameState: GameState = { ...initialStep, imageUrl, imageId };
+            const { imagePrompt, characters, equipment: initEquip, skills: initSkills, summary, ...rest } = initialStep as any;
+            const newGameState: GameState = { ...rest, imageUrl, imageId, summary };
 
             setUserSettings(settings);
             setHistory([newGameState]);
             setCurrentStepIndex(0);
-            setCharacterProfiles(initialStep.characters || []);
+            setCharacterProfiles(characters || []);
+            setEquipment(initEquip || []);
+            setSkills(initSkills || []);
             setSelectedInteractiveWords([]);
             
         } catch (e) {
@@ -339,8 +345,17 @@ const App: React.FC = () => {
 
         try {
             const choice = currentGameState.choices[choiceIndex].choice;
-            const fullPrompt = `The player chose: "${choice}". Continue the story.`;
-            
+            const recentSummaries = history.slice(Math.max(0, history.length - 3)).map(h => h.summary).join(' ');
+            const equippedItems = equipment.filter(e => e.equipped).map(e => `${e.name} (${e.description})`).join('; ');
+            const activeSkills = skills.filter(s => s.isActive).map(s => `${s.name} (Lv ${s.level})`).join('; ');
+
+            let context = '';
+            if (recentSummaries) context += `Previous events: ${recentSummaries}\n`;
+            if (equippedItems) context += `Equipped: ${equippedItems}\n`;
+            if (activeSkills) context += `Active skills: ${activeSkills}\n`;
+
+            const fullPrompt = `${context}The player chose: "${choice}". Continue the story. Update summary, equipment, and skills as needed.`;
+
             const nextStep = await generateAdventureStep(fullPrompt, userSettings!, characterProfiles);
 
             let imageUrl = '';
@@ -352,16 +367,20 @@ const App: React.FC = () => {
                 await db.images.put({ id: imageId, blob });
             }
 
-            const newGameState: GameState = { ...nextStep, imageUrl, imageId };
+            const { imagePrompt: nextImagePrompt, characters: stepChars, equipment: stepEquip, skills: stepSkills, summary: stepSummary, ...restStep } = nextStep as any;
+            const newGameState: GameState = { ...restStep, imageUrl, imageId, summary: stepSummary };
 
             const newCharacterProfiles = [...characterProfiles];
-            if (nextStep.characters && nextStep.characters.length > 0) {
-                nextStep.characters.forEach(newChar => {
+            if (stepChars && stepChars.length > 0) {
+                stepChars.forEach(newChar => {
                     const existingIndex = newCharacterProfiles.findIndex(c => c.name.toLowerCase() === newChar.name.toLowerCase());
                     if (existingIndex > -1) newCharacterProfiles[existingIndex] = newChar;
                     else newCharacterProfiles.push(newChar);
                 });
             }
+
+            setEquipment(stepEquip || []);
+            setSkills(stepSkills || []);
 
             const newHistory = [...updatedHistory, newGameState];
             setHistory(newHistory);
@@ -384,12 +403,17 @@ const App: React.FC = () => {
             await db.transaction('rw', db.session, db.history, async () => {
                 await db.history.clear();
                 const historyToSave: HistoryStep[] = history.map(h => ({
-                    story: h.story, translatedStory: h.translatedStory, choices: h.choices,
-                    vocabulary: h.vocabulary, imageId: h.imageId || '', selectedChoiceIndex: h.selectedChoiceIndex,
+                    story: h.story,
+                    translatedStory: h.translatedStory,
+                    choices: h.choices,
+                    vocabulary: h.vocabulary,
+                    imageId: h.imageId || '',
+                    selectedChoiceIndex: h.selectedChoiceIndex,
+                    summary: h.summary,
                 }));
                 await db.history.bulkAdd(historyToSave);
 
-                const sessionData: SessionData = { id: SESSION_ID, userSettings, currentStepIndex, characterProfiles };
+                const sessionData: SessionData = { id: SESSION_ID, userSettings, currentStepIndex, characterProfiles, equipment, skills };
                 await db.session.put(sessionData);
             });
             setHasSaveData(true);
@@ -397,7 +421,7 @@ const App: React.FC = () => {
             console.error("Auto-save failed:", e);
             addToast("Auto-save failed. Your progress may not be saved.", "error");
         }
-    }, [appScreen, history, userSettings, currentStepIndex, characterProfiles, addToast]);
+    }, [appScreen, history, userSettings, currentStepIndex, characterProfiles, equipment, skills, addToast]);
 
     useEffect(() => {
         const timer = setTimeout(() => { autoSaveGame(); }, 2000);
@@ -413,14 +437,22 @@ const App: React.FC = () => {
             if (!session || historySteps.length === 0) throw new Error("No saved game data found.");
 
             const recoveredHistory: GameState[] = historySteps.map(step => ({
-                story: step.story, translatedStory: step.translatedStory, imageUrl: '', imageId: step.imageId,
-                choices: step.choices, vocabulary: step.vocabulary, selectedChoiceIndex: step.selectedChoiceIndex,
+                story: step.story,
+                translatedStory: step.translatedStory,
+                imageUrl: '',
+                imageId: step.imageId,
+                choices: step.choices,
+                vocabulary: step.vocabulary,
+                selectedChoiceIndex: step.selectedChoiceIndex,
+                summary: step.summary,
             }));
 
             setUserSettings(session.userSettings);
             setHistory(recoveredHistory);
             setCurrentStepIndex(session.currentStepIndex);
             setCharacterProfiles(session.characterProfiles);
+            setEquipment(session.equipment || []);
+            setSkills(session.skills || []);
             setAppScreen(AppScreen.GAME);
         } catch (e) {
             console.error("Failed to continue game:", e);
@@ -461,6 +493,8 @@ const App: React.FC = () => {
             setHistory(newHistory);
             setCurrentStepIndex(data.currentStepIndex);
             setCharacterProfiles(data.characterProfiles || []);
+            setEquipment(data.equipment || []);
+            setSkills(data.skills || []);
             setAppScreen(AppScreen.GAME);
             
             await autoSaveGame(); 
@@ -488,7 +522,7 @@ const App: React.FC = () => {
                 })
             );
 
-            const saveData: SaveData = { userSettings, history: historyWithImages, currentStepIndex, characterProfiles };
+            const saveData: SaveData = { userSettings, history: historyWithImages, currentStepIndex, characterProfiles, equipment, skills };
             const jsonString = JSON.stringify(saveData);
             const blob = new Blob([jsonString], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
@@ -510,7 +544,8 @@ const App: React.FC = () => {
             try {
                 await clearAllData();
                 setHistory([]); setCurrentStepIndex(-1); setUserSettings(null);
-                setCharacterProfiles([]); setHasSaveData(false); setError(null);
+                setCharacterProfiles([]); setEquipment([]); setSkills([]);
+                setHasSaveData(false); setError(null);
                 setAppScreen(AppScreen.SETUP);
                 addToast("All data cleared successfully.", "success");
             } catch (e) {
@@ -630,6 +665,8 @@ const App: React.FC = () => {
                 return <NotebookView notebook={notebook} onUpdateNotebook={handleUpdateNotebook} onClose={() => setAppScreen(AppScreen.GAME)} onDelete={handleDeleteFromNotebook} />;
             case AppScreen.API_KEY_MANAGER:
                 return <ApiKeyManager onBack={() => setAppScreen(AppScreen.SETUP)} onToast={addToast} />;
+            case AppScreen.PROFILE:
+                return <CharacterProfileView equipment={equipment} skills={skills} onClose={() => setAppScreen(AppScreen.GAME)} />;
             case AppScreen.GAME:
                 if (!gameState || !userSettings) {
                     return (
@@ -679,6 +716,7 @@ const App: React.FC = () => {
                                         />
                                         <label htmlFor="inGameImageToggle" className="text-gray-300">Generate Images</label>
                                     </div>
+                                    <button onClick={() => setAppScreen(AppScreen.PROFILE)} className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors">Profile</button>
                                     <button onClick={() => setAppScreen(AppScreen.NOTEBOOK)} className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors">Notebook ({notebook.length})</button>
                                     <button onClick={handleManualSave} className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors">Save</button>
                                     <button onClick={() => setAppScreen(AppScreen.SETUP)} className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors">Menu</button>
