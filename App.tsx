@@ -9,6 +9,8 @@ import LoadingSpinner from './components/LoadingSpinner';
 import GameSetup from './components/GameSetup';
 import NotebookView from './components/NotebookView';
 import Toast from './components/Toast';
+import ApiKeyManager from './components/ApiKeyManager';
+import apiKeyService from './services/apiKeyService';
 
 const SESSION_ID = 1;
 const STORAGE_WARNING_THRESHOLD_BYTES = 50 * 1024 * 1024; // 50MB
@@ -144,10 +146,13 @@ const App: React.FC = () => {
     const [isImageFullscreen, setIsImageFullscreen] = useState(false);
     const [currentImageUrl, setCurrentImageUrl] = useState<string>('');
     const [showStorageWarning, setShowStorageWarning] = useState(false);
+    const [hasWarnedStorage, setHasWarnedStorage] = useState(false);
     const [selectedInteractiveWords, setSelectedInteractiveWords] = useState<VocabularyItem[]>([]);
     const [translatingWord, setTranslatingWord] = useState<string | null>(null);
     const [speakingState, setSpeakingState] = useState<{ type: 'story' | 'word'; key: string } | null>(null);
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+    // API key initialization now happens at startup (index.tsx)
 
 
     const gameState = history[currentStepIndex] ?? null;
@@ -229,6 +234,15 @@ const App: React.FC = () => {
         }, duration);
     }, []);
 
+    useEffect(() => {
+        apiKeyService.onChange((key, changeType) => {
+            if (changeType === 'auto') {
+                const masked = `${key.slice(0,6)}...${key.slice(-4)}`;
+                addToast(`API key exhausted. Switched to ${masked}`, 'success');
+            }
+        });
+    }, [addToast]);
+
     const removeToast = (id: number) => {
         setToasts(prev => prev.filter(t => t.id !== id));
     };
@@ -244,7 +258,14 @@ const App: React.FC = () => {
                 const sizeMB = (totalBytes / (1024 * 1024)).toFixed(1);
                 setSaveDataInfo({ size: sizeMB, steps: history.length });
                 
-                setShowStorageWarning(totalBytes > STORAGE_WARNING_THRESHOLD_BYTES);
+                const overThreshold = totalBytes > STORAGE_WARNING_THRESHOLD_BYTES;
+                setShowStorageWarning(overThreshold);
+                if (overThreshold && !hasWarnedStorage) {
+                    setHasWarnedStorage(true);
+                    addToast(`Storage is high (~${sizeMB} MB). Please Save your game to a file to avoid data loss.`, 'error', 8000);
+                } else if (!overThreshold && hasWarnedStorage) {
+                    setHasWarnedStorage(false);
+                }
 
             } catch (e) {
                 console.error("Error calculating save size:", e);
@@ -253,8 +274,9 @@ const App: React.FC = () => {
         } else {
             setSaveDataInfo(null);
             setShowStorageWarning(false);
+            setHasWarnedStorage(false);
         }
-    }, [history, userSettings, currentStepIndex, characterProfiles, addToast]);
+    }, [history, userSettings, currentStepIndex, characterProfiles, addToast, hasWarnedStorage]);
 
     useEffect(() => {
         updateSaveDataInfo();
@@ -279,8 +301,7 @@ const App: React.FC = () => {
             let imageId: string | undefined = undefined;
             if (settings.generateImages) {
                 setLoadingState(LoadingState.GENERATING_IMAGE);
-                imageUrl = await generateAdventureImage(initialStep.imagePrompt);
-                const blob = base64ToBlob(imageUrl, 'image/jpeg');
+                const blob = await generateAdventureImage(initialStep.imagePrompt);
                 imageId = crypto.randomUUID();
                 await db.images.put({ id: imageId, blob });
             }
@@ -326,12 +347,11 @@ const App: React.FC = () => {
             let imageId: string | undefined = undefined;
             if (userSettings?.generateImages) {
                 setLoadingState(LoadingState.GENERATING_IMAGE);
-                imageUrl = await generateAdventureImage(nextStep.imagePrompt);
-                const blob = base64ToBlob(imageUrl, 'image/jpeg');
+                const blob = await generateAdventureImage(nextStep.imagePrompt);
                 imageId = crypto.randomUUID();
                 await db.images.put({ id: imageId, blob });
             }
-            
+
             const newGameState: GameState = { ...nextStep, imageUrl, imageId };
 
             const newCharacterProfiles = [...characterProfiles];
@@ -608,6 +628,8 @@ const App: React.FC = () => {
         switch (appScreen) {
             case AppScreen.NOTEBOOK:
                 return <NotebookView notebook={notebook} onUpdateNotebook={handleUpdateNotebook} onClose={() => setAppScreen(AppScreen.GAME)} onDelete={handleDeleteFromNotebook} />;
+            case AppScreen.API_KEY_MANAGER:
+                return <ApiKeyManager onBack={() => setAppScreen(AppScreen.SETUP)} onToast={addToast} />;
             case AppScreen.GAME:
                 if (!gameState || !userSettings) {
                     return (
@@ -639,6 +661,14 @@ const App: React.FC = () => {
                             <header className="flex justify-between items-center mb-4 border-b border-gray-700 pb-4 flex-wrap gap-y-2">
                                 <h1 className="text-2xl font-bold text-purple-300">{userSettings.genre}</h1>
                                 <div className="flex gap-2 items-center flex-wrap">
+                                    {saveDataInfo && (
+                                        <div
+                                            className={`text-xs px-2 py-1 rounded border ${showStorageWarning ? 'bg-yellow-900/50 text-yellow-300 border-yellow-700/80' : 'bg-gray-800/60 text-gray-300 border-gray-700/80'}`}
+                                            title={`Approximate local storage used${showStorageWarning ? ' (over recommended limit)' : ''}`}
+                                        >
+                                            Storage: {saveDataInfo.size} MB
+                                        </div>
+                                    )}
                                     <div className="flex items-center gap-2 text-sm mr-4">
                                         <input
                                             type="checkbox"
@@ -760,8 +790,9 @@ const App: React.FC = () => {
                                 </div>
                             )}
                             {showStorageWarning && (
-                                <div className="mt-4 p-4 bg-yellow-900/50 border border-yellow-700/80 rounded-lg text-yellow-300 text-sm">
-                                    <strong>Storage Warning:</strong> Using {saveDataInfo?.size} MB. Consider saving and starting a new game soon.
+                                <div className="mt-4 p-4 bg-yellow-900/50 border border-yellow-700/80 rounded-lg text-yellow-300 text-sm flex items-center justify-between gap-3">
+                                    <span><strong>Storage Warning:</strong> Using {saveDataInfo?.size} MB. Please save your game to a file.</span>
+                                    <button onClick={handleManualSave} className="bg-yellow-700 hover:bg-yellow-600 text-yellow-50 font-semibold py-1 px-3 rounded-md">Save Now</button>
                                 </div>
                             )}
                         </main>
@@ -769,7 +800,7 @@ const App: React.FC = () => {
                 );
             case AppScreen.SETUP:
             default:
-                 return <GameSetup onStartGame={handleStartGame} isLoading={isLoading} onLoadGame={handleLoadGameFromFile} onContinueGame={handleContinueGame} hasSaveData={hasSaveData} error={error} onClearData={handleClearData} onToast={addToast} />;
+                 return <GameSetup onStartGame={handleStartGame} isLoading={isLoading} onLoadGame={handleLoadGameFromFile} onContinueGame={handleContinueGame} hasSaveData={hasSaveData} error={error} onClearData={handleClearData} onToast={addToast} onManageApiKeys={() => setAppScreen(AppScreen.API_KEY_MANAGER)} />;
         }
     };
 

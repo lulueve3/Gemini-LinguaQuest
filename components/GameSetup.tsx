@@ -11,17 +11,19 @@ interface GameSetupProps {
     error: string | null;
     onClearData?: () => void;
     onToast: (message: string, type?: 'error' | 'success') => void;
+    onManageApiKeys: () => void;
 }
 
 const GameSetup: React.FC<GameSetupProps> = ({ 
     onStartGame, 
     isLoading, 
     onLoadGame, 
-    onContinueGame, 
-    hasSaveData, 
+    onContinueGame,
+    hasSaveData,
     error,
     onClearData,
     onToast,
+    onManageApiKeys,
 }) => {
     const [prompt, setPrompt] = useState('');
     const [genre, setGenre] = useState('Dark Fantasy');
@@ -74,6 +76,15 @@ Key Characters/Factions:
 
 Key Events:
 - ${result.keyEvents.join('\n- ')}
+
+--- Player Character ---
+Role: ${result.playerRole}
+Background: ${result.playerBackground}
+Appearance: ${result.playerAppearance}
+Personality: ${result.playerPersonality}
+Skills: ${result.playerSkills.join(', ')}
+Equipment: ${result.playerEquipment.join(', ')}
+Starting Situation: ${result.startingSituation}
 --- End Context ---
 
 Adventure Start:
@@ -315,6 +326,14 @@ ${result.prompt}`;
                                 className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg transition-colors w-full sm:w-auto disabled:opacity-50"
                             >
                                 Load from File
+                            </button>
+                            <button
+                                type="button"
+                                onClick={onManageApiKeys}
+                                disabled={isLoading}
+                                className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-colors w-full sm:w-auto disabled:opacity-50"
+                            >
+                                Manage API Keys
                             </button>
                              <input type="file" id="loadGameInput" className="hidden" accept=".json" onChange={handleFileChange} />
                         </div>

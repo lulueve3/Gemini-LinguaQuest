@@ -1,14 +1,18 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { AdventureStep, UserSettings, PromptSuggestion, CharacterProfile } from '../types';
+import apiKeyService from './apiKeyService';
 
-if (!process.env.API_KEY) {
-  throw new Error("API_KEY environment variable is not set");
-}
-
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const getClient = () => {
+    const key = apiKeyService.getActiveKey();
+    if (!key) {
+        throw new Error("No API key configured. Please add an API key.");
+    }
+    return new GoogleGenAI({ apiKey: key });
+};
 
 const storyModel = 'gemini-2.5-flash';
+const ideasModel = 'gemini-2.0-flash-lite';
 const imageModel = 'imagen-4.0-generate-001';
 
 const characterSchema = {
@@ -92,15 +96,58 @@ const suggestionSchema = {
         keyCharacters: {
             type: Type.ARRAY,
             items: { type: Type.STRING },
-            description: "A list of 2-3 important characters or factions from the anime/manga relevant to the prompt."
+            description: "A list of important characters or factions relevant to the prompt (any number)."
         },
         keyEvents: {
             type: Type.ARRAY,
             items: { type: Type.STRING },
-            description: "A list of 2-3 significant past or ongoing events that set the stage for the story."
+            description: "A list of significant past or ongoing events that set the stage for the story (any number)."
+        },
+        playerBackground: {
+            type: Type.STRING,
+            description: "A concise backstory for the player's character including origin, motivation, and current status."
+        },
+        playerRole: {
+            type: Type.STRING,
+            description: "The role/class/archetype the player embodies in this world."
+        },
+        playerSkills: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            description: "A list of notable skills or abilities the player's character has (any number; can expand over time)."
+        },
+        startingSituation: {
+            type: Type.STRING,
+            description: "A concrete starting situation or hook describing where the player begins and immediate context or objective."
+        },
+        playerAppearance: {
+            type: Type.STRING,
+            description: "A short but vivid description of the player's character appearance (age, build, attire, notable features)."
+        },
+        playerPersonality: {
+            type: Type.STRING,
+            description: "A concise description of personality traits and demeanor influencing decisions and interactions."
+        },
+        playerEquipment: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            description: "A list of starting equipment or items (any number; can expand as the player progresses)."
         }
     },
-    required: ["prompt", "genre", "worldDescription", "keyCharacters", "keyEvents"]
+    required: [
+        "prompt",
+        "genre",
+        "worldDescription",
+        "keyCharacters",
+        "keyEvents",
+        "playerBackground",
+        "playerRole",
+        "playerSkills",
+        "startingSituation",
+        "playerAppearance",
+        "playerPersonality",
+        "playerEquipment"
+    ]
 };
 
 const inspirationSchema = {
@@ -154,6 +201,36 @@ const getApiErrorMessage = (error: unknown): string => {
     return String(error) || defaultMessage;
 };
 
+const isQuotaError = (error: unknown): boolean => {
+    if (error instanceof Error) {
+        const msg = error.message.toLowerCase();
+        return msg.includes("resource_exhausted") || msg.includes("429");
+    }
+    const msg = String(error).toLowerCase();
+    return msg.includes("resource_exhausted") || msg.includes("429");
+};
+
+const callGemini = async <T>(fn: (client: GoogleGenAI) => Promise<T>): Promise<T> => {
+    const keys = apiKeyService.getKeys();
+    if (keys.length === 0) {
+        throw new Error("No API key configured. Please add an API key.");
+    }
+    for (let attempt = 0; attempt < keys.length; attempt++) {
+        const client = getClient();
+        try {
+            return await fn(client);
+        } catch (error) {
+            if (isQuotaError(error) && attempt < keys.length - 1) {
+                if (apiKeyService.switchToNextKey()) {
+                    continue;
+                }
+            }
+            throw new Error(getApiErrorMessage(error));
+        }
+    }
+    throw new Error("All API keys are exhausted.");
+};
+
 
 export const generateAdventureStep = async (prompt: string, settings: Omit<UserSettings, 'prompt'>, knownCharacters: CharacterProfile[]): Promise<AdventureStep> => {
     try {
@@ -165,7 +242,7 @@ export const generateAdventureStep = async (prompt: string, settings: Omit<UserS
 
         const fullPrompt = `${prompt}${characterContext}\n\nGame settings:\nSource Language: ${settings.sourceLanguage}\nTarget Language: ${settings.targetLanguage}\nGenre: ${settings.genre}${styleInstruction}`;
 
-        const response = await ai.models.generateContent({
+        const response = await callGemini(client => client.models.generateContent({
             model: storyModel,
             contents: fullPrompt,
             config: {
@@ -174,7 +251,7 @@ export const generateAdventureStep = async (prompt: string, settings: Omit<UserS
                 responseSchema: responseSchema,
                 temperature: 0.8,
             },
-        });
+        }));
 
         const jsonText = response.text.trim();
         const parsedJson = JSON.parse(jsonText);
@@ -194,23 +271,43 @@ export const generateAdventureStep = async (prompt: string, settings: Omit<UserS
 
 export const generatePromptSuggestion = async (animeName: string): Promise<PromptSuggestion> => {
     try {
-        const fullPrompt = `Based on the anime/manga "${animeName}", generate a detailed suggestion for a text-based RPG. Provide a creative story prompt, a suitable genre, a detailed description of the world and its setting, a list of 2-3 key characters or factions, and a list of 2-3 key events that provide context.`;
+        const fullPrompt = `Based on the anime/manga "${animeName}", generate a detailed suggestion for a text-based RPG.
+Provide:
+- A creative story prompt to kick off the adventure
+- A suitable genre
+- A richly detailed world description
+- A list of key characters or factions (any number; concise)
+- A list of key events that set context (any number)
+- Player character details: role/class, concise background, skills (any number), appearance, personality, starting equipment (any number), and a concrete starting situation.`;
 
-        const response = await ai.models.generateContent({
+        const response = await callGemini(client => client.models.generateContent({
             model: storyModel,
             contents: fullPrompt,
             config: {
-                systemInstruction: "You are a creative assistant helping a user brainstorm ideas for a role-playing game. You must respond ONLY with a valid JSON object matching the provided schema.",
+                systemInstruction: "You are a creative assistant helping a user brainstorm ideas for a role-playing game. You must respond ONLY with a valid JSON object that strictly matches the provided schema, including detailed player character fields.",
                 responseMimeType: "application/json",
                 responseSchema: suggestionSchema,
                 temperature: 0.7,
             },
-        });
+        }));
 
         const jsonText = response.text.trim();
         const parsedJson = JSON.parse(jsonText);
         
-        if (parsedJson.prompt && parsedJson.genre && parsedJson.worldDescription && Array.isArray(parsedJson.keyCharacters) && Array.isArray(parsedJson.keyEvents)) {
+        if (
+            parsedJson.prompt &&
+            parsedJson.genre &&
+            parsedJson.worldDescription &&
+            Array.isArray(parsedJson.keyCharacters) &&
+            Array.isArray(parsedJson.keyEvents) &&
+            typeof parsedJson.playerBackground === 'string' &&
+            typeof parsedJson.playerRole === 'string' &&
+            Array.isArray(parsedJson.playerSkills) &&
+            typeof parsedJson.startingSituation === 'string' &&
+            typeof parsedJson.playerAppearance === 'string' &&
+            typeof parsedJson.playerPersonality === 'string' &&
+            Array.isArray(parsedJson.playerEquipment)
+        ) {
             return parsedJson as PromptSuggestion;
         } else {
             console.error("Invalid JSON structure received for prompt suggestion:", parsedJson);
@@ -230,8 +327,8 @@ export const generateInspirationIdeas = async (): Promise<string[]> => {
 2. **4 ideas** that are completely original concepts based on genres (e.g., 'A bio-punk detective solving crimes in a city of mutated plants', 'A solar-punk pirate sailing the cosmic winds'). These should be creative and not reference any existing anime/manga.
 Do not repeat the examples given. Each idea must be a short, punchy phrase suitable for a button label. Ensure high variety in the suggestions.`;
         
-        const response = await ai.models.generateContent({
-            model: storyModel,
+        const response = await callGemini(client => client.models.generateContent({
+            model: ideasModel,
             contents: prompt,
             config: {
                 systemInstruction: "You are a creative assistant that provides a JSON object containing a list of exactly 8 short RPG ideas. You must respond ONLY with a valid JSON object matching the provided schema.",
@@ -239,7 +336,7 @@ Do not repeat the examples given. Each idea must be a short, punchy phrase suita
                 responseSchema: inspirationSchema,
                 temperature: 0.9,
             }
-        });
+        }));
 
         const jsonText = response.text.trim();
         const parsedJson = JSON.parse(jsonText);
@@ -258,9 +355,9 @@ Do not repeat the examples given. Each idea must be a short, punchy phrase suita
 }
 
 
-export const generateAdventureImage = async (prompt: string): Promise<string> => {
+export const generateAdventureImage = async (prompt: string): Promise<Blob> => {
     try {
-        const response = await ai.models.generateImages({
+        const response = await callGemini(client => client.models.generateImages({
             model: imageModel,
             prompt: prompt,
             config: {
@@ -268,11 +365,17 @@ export const generateAdventureImage = async (prompt: string): Promise<string> =>
                 outputMimeType: 'image/jpeg',
                 aspectRatio: '16:9',
             },
-        });
+        }));
 
         if (response.generatedImages && response.generatedImages.length > 0) {
             const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
-            return `data:image/jpeg;base64,${base64ImageBytes}`;
+            const byteCharacters = atob(base64ImageBytes);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            return new Blob([byteArray], { type: 'image/jpeg' });
         }
         throw new Error("Image generation returned no images.");
     } catch (error) {
@@ -327,13 +430,13 @@ Your response:`;
 Word: "${word}"`;
         }
 
-        const response = await ai.models.generateContent({
+        const response = await callGemini(client => client.models.generateContent({
             model: storyModel,
             contents: prompt,
             config: {
                 temperature: 0,
             },
-        });
+        }));
 
         const translatedText = response.text.trim();
         
