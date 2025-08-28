@@ -155,6 +155,13 @@ const App: React.FC = () => {
     const [speakingState, setSpeakingState] = useState<{ type: 'story' | 'word'; key: string } | null>(null);
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
+    // Limits
+    const MAX_EQUIPPED = 5;
+    const MAX_SKILL_EQUIPPED = 5;
+    const MAX_INVENTORY = 30;
+    const MAX_SKILLS = 15;
+    const MAX_APPLY_CHANGE_PER_STEP = 2;
+
     // API key initialization now happens at startup (index.tsx)
 
 
@@ -285,6 +292,9 @@ const App: React.FC = () => {
         updateSaveDataInfo();
     }, [history, updateSaveDataInfo]);
 
+    const normalizeSkills = useCallback((arr: SkillItem[] = []): SkillItem[] =>
+        arr.map(s => ({ ...s, equipped: s.equipped ?? s.isActive ?? false })), []);
+
     const handleStartGame = async (settings: UserSettings) => {
         setError(null);
         setIsRecovering(false);
@@ -309,15 +319,15 @@ const App: React.FC = () => {
                 await db.images.put({ id: imageId, blob });
             }
 
-            const { imagePrompt, characters, equipment: initEquip, skills: initSkills, summary, ...rest } = initialStep as any;
-            const newGameState: GameState = { ...rest, imageUrl, imageId, summary };
+            const { imagePrompt, characters, equipment: initEquip, skills: initSkills, summary, characterStatus, ...rest } = initialStep as any;
+            const newGameState: GameState = { ...rest, imageUrl, imageId, summary, characterStatus, applyChangeActionsUsed: 0 };
 
             setUserSettings(settings);
             setHistory([newGameState]);
             setCurrentStepIndex(0);
             setCharacterProfiles(characters || []);
-            setEquipment(initEquip || []);
-            setSkills(initSkills || []);
+            setEquipment((initEquip || []).map(e => ({ ...e, quantity: e.quantity ?? 1 })));
+            setSkills(normalizeSkills(initSkills || []));
             setSelectedInteractiveWords([]);
             
         } catch (e) {
@@ -329,6 +339,49 @@ const App: React.FC = () => {
             setLoadingState(LoadingState.IDLE);
         }
     };
+
+    const mergeEquipment = useCallback((prev: EquipmentItem[], incoming: EquipmentItem[] = []): EquipmentItem[] => {
+        const byName = (s: string) => s.trim().toLowerCase();
+        const map = new Map<string, EquipmentItem>();
+        prev.forEach(e => map.set(byName(e.name), { ...e, quantity: e.quantity ?? 1 }));
+        incoming.forEach(e => {
+            const key = byName(e.name);
+            const exists = map.get(key);
+            if (exists) {
+                map.set(key, {
+                    ...exists,
+                    description: e.description ?? exists.description,
+                    equipped: typeof e.equipped === 'boolean' ? e.equipped : exists.equipped,
+                    quantity: typeof e.quantity === 'number' ? e.quantity : (exists.quantity ?? 1),
+                });
+            } else {
+                map.set(key, { ...e, quantity: e.quantity ?? 1 });
+            }
+        });
+        return Array.from(map.values());
+    }, []);
+
+    const mergeSkills = useCallback((prev: SkillItem[], incoming: SkillItem[] = []): SkillItem[] => {
+        const byName = (s: string) => s.trim().toLowerCase();
+        const map = new Map<string, SkillItem>();
+        prev.forEach(s => map.set(byName(s.name), { ...s, equipped: s.equipped ?? s.isActive ?? false }));
+        incoming.forEach(s => {
+            const key = byName(s.name);
+            const exists = map.get(key);
+            const nextEquipped = (s.equipped ?? s.isActive);
+            if (exists) {
+                map.set(key, {
+                    ...exists,
+                    level: typeof s.level === 'number' ? s.level : exists.level,
+                    description: s.description ?? exists.description,
+                    equipped: typeof nextEquipped === 'boolean' ? nextEquipped : (exists.equipped ?? false),
+                });
+            } else {
+                map.set(key, { ...s, equipped: s.equipped ?? s.isActive ?? false });
+            }
+        });
+        return Array.from(map.values());
+    }, []);
 
     const handleMakeChoice = async (choiceIndex: number) => {
         if (loadingState !== LoadingState.IDLE) return;
@@ -347,7 +400,7 @@ const App: React.FC = () => {
             const choice = currentGameState.choices[choiceIndex].choice;
             const recentSummaries = history.slice(Math.max(0, history.length - 3)).map(h => h.summary).join(' ');
             const equippedItems = equipment.filter(e => e.equipped).map(e => `${e.name} (${e.description})`).join('; ');
-            const activeSkills = skills.filter(s => s.isActive).map(s => `${s.name} (Lv ${s.level})`).join('; ');
+            const activeSkills = skills.filter(s => (s.equipped ?? s.isActive)).map(s => `${s.name} (Lv ${s.level})`).join('; ');
 
             let context = '';
             if (recentSummaries) context += `Previous events: ${recentSummaries}\n`;
@@ -367,8 +420,8 @@ const App: React.FC = () => {
                 await db.images.put({ id: imageId, blob });
             }
 
-            const { imagePrompt: nextImagePrompt, characters: stepChars, equipment: stepEquip, skills: stepSkills, summary: stepSummary, ...restStep } = nextStep as any;
-            const newGameState: GameState = { ...restStep, imageUrl, imageId, summary: stepSummary };
+            const { imagePrompt: nextImagePrompt, characters: stepChars, equipment: stepEquip, skills: stepSkills, summary: stepSummary, characterStatus, ...restStep } = nextStep as any;
+            const newGameState: GameState = { ...restStep, imageUrl, imageId, summary: stepSummary, characterStatus, applyChangeActionsUsed: 0 };
 
             const newCharacterProfiles = [...characterProfiles];
             if (stepChars && stepChars.length > 0) {
@@ -379,8 +432,8 @@ const App: React.FC = () => {
                 });
             }
 
-            setEquipment(stepEquip || []);
-            setSkills(stepSkills || []);
+            setEquipment(prev => mergeEquipment(prev, stepEquip || []));
+            setSkills(prev => mergeSkills(prev, stepSkills || []));
 
             const newHistory = [...updatedHistory, newGameState];
             setHistory(newHistory);
@@ -394,6 +447,53 @@ const App: React.FC = () => {
              setError((e as Error).message);
              addToast((e as Error).message, 'error');
              setLoadingState(LoadingState.ERROR);
+        }
+    };
+
+    const handleApplyAndChangeAction = async (equipList: EquipmentItem[], skillList: SkillItem[]) => {
+        const currentGameState = history[currentStepIndex];
+        if (!currentGameState || !userSettings) return;
+
+        const used = currentGameState.applyChangeActionsUsed ?? 0;
+        if (used >= MAX_APPLY_CHANGE_PER_STEP) {
+            addToast(`You can only Apply & Change action ${MAX_APPLY_CHANGE_PER_STEP} times per step.`, 'error');
+            return;
+        }
+
+        // Apply the staged changes first
+        setEquipment(equipList.map(e => ({ ...e, quantity: e.quantity ?? 1 })));
+        setSkills(normalizeSkills(skillList));
+
+        // Build context to request new choices only
+        const recentSummaries = history.slice(Math.max(0, history.length - 3)).map(h => h.summary).join(' ');
+        const equippedItems = equipList.filter(e => e.equipped).map(e => `${e.name} (${e.description})`).join('; ');
+        const equippedSkills = skillList.filter(s => (s.equipped ?? s.isActive)).map(s => `${s.name} (Lv ${s.level})`).join('; ');
+
+        let context = '';
+        if (recentSummaries) context += `Previous events: ${recentSummaries}\n`;
+        if (equippedItems) context += `Equipped: ${equippedItems}\n`;
+        if (equippedSkills) context += `Equipped skills: ${equippedSkills}\n`;
+
+        const prompt = `${context}Do not continue the narrative. Based on the current situation and the equipped gear/skills, propose exactly 4 fresh, diverse, actionable choices suitable for the next move, each in both source and target languages. Keep tone and world consistent.`;
+
+        try {
+            setLoadingState(LoadingState.GENERATING_STORY);
+            const step = await generateAdventureStep(prompt, userSettings, characterProfiles);
+            const newChoices = step.choices;
+
+            const updatedHistory = [...history];
+            updatedHistory[currentStepIndex] = {
+                ...currentGameState,
+                choices: newChoices,
+                applyChangeActionsUsed: used + 1,
+            };
+            setHistory(updatedHistory);
+            addToast('Choices updated from current equipment/skills.', 'success');
+        } catch (e) {
+            console.error('Failed to refresh choices:', e);
+            addToast((e as Error).message, 'error');
+        } finally {
+            setLoadingState(LoadingState.IDLE);
         }
     };
 
@@ -413,7 +513,7 @@ const App: React.FC = () => {
                 }));
                 await db.history.bulkAdd(historyToSave);
 
-                const sessionData: SessionData = { id: SESSION_ID, userSettings, currentStepIndex, characterProfiles, equipment, skills };
+            const sessionData: SessionData = { id: SESSION_ID, userSettings, currentStepIndex, characterProfiles, equipment, skills };
                 await db.session.put(sessionData);
             });
             setHasSaveData(true);
@@ -451,8 +551,8 @@ const App: React.FC = () => {
             setHistory(recoveredHistory);
             setCurrentStepIndex(session.currentStepIndex);
             setCharacterProfiles(session.characterProfiles);
-            setEquipment(session.equipment || []);
-            setSkills(session.skills || []);
+            setEquipment((session.equipment || []).map(e => ({ ...e, quantity: e.quantity ?? 1 })));
+            setSkills(normalizeSkills(session.skills || []));
             setAppScreen(AppScreen.GAME);
         } catch (e) {
             console.error("Failed to continue game:", e);
@@ -666,7 +766,40 @@ const App: React.FC = () => {
             case AppScreen.API_KEY_MANAGER:
                 return <ApiKeyManager onBack={() => setAppScreen(AppScreen.SETUP)} onToast={addToast} />;
             case AppScreen.PROFILE:
-                return <CharacterProfileView equipment={equipment} skills={skills} onClose={() => setAppScreen(AppScreen.GAME)} />;
+                return (
+                    <CharacterProfileView 
+                        equipment={equipment}
+                        skills={skills}
+                        status={history[currentStepIndex]?.characterStatus}
+                        limits={{
+                            maxEquipped: MAX_EQUIPPED,
+                            maxEquippedSkills: MAX_SKILL_EQUIPPED,
+                            maxInventory: MAX_INVENTORY,
+                            maxSkills: MAX_SKILLS,
+                            maxApplyChangePerStep: MAX_APPLY_CHANGE_PER_STEP,
+                        }}
+                        applyChangeRemaining={(history[currentStepIndex]?.applyChangeActionsUsed ?? 0) >= MAX_APPLY_CHANGE_PER_STEP ? 0 : (MAX_APPLY_CHANGE_PER_STEP - (history[currentStepIndex]?.applyChangeActionsUsed ?? 0))}
+                        onApply={(equip, skillList) => {
+                            if (equip.length > MAX_INVENTORY) {
+                                addToast(`Inventory exceeds ${MAX_INVENTORY} items.`, 'error');
+                                return;
+                            }
+                            if (skillList.length > MAX_SKILLS) {
+                                addToast(`Skills exceed ${MAX_SKILLS}.`, 'error');
+                                return;
+                            }
+                            setEquipment(equip.map(e => ({ ...e, quantity: e.quantity ?? 1 })));
+                            setSkills(normalizeSkills(skillList));
+                            addToast('Changes applied.', 'success');
+                            setAppScreen(AppScreen.GAME); // auto back to game on Apply
+                        }}
+                        onApplyAndChange={(equip, skillList) => {
+                            handleApplyAndChangeAction(equip, skillList);
+                            setAppScreen(AppScreen.GAME); // auto back to game
+                        }}
+                        onClose={() => setAppScreen(AppScreen.GAME)}
+                    />
+                );
             case AppScreen.GAME:
                 if (!gameState || !userSettings) {
                     return (

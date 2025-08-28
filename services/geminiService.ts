@@ -47,7 +47,8 @@ const equipmentSchema = {
     properties: {
         name: { type: Type.STRING, description: "Name of the equipment item." },
         description: { type: Type.STRING, description: "Brief description or attributes of the item." },
-        equipped: { type: Type.BOOLEAN, description: "Whether the item is currently equipped." }
+        equipped: { type: Type.BOOLEAN, description: "Whether the item is currently equipped." },
+        quantity: { type: Type.INTEGER, description: "Optional quantity for stackable items or currency.", nullable: true }
     },
     required: ["name", "description", "equipped"]
 };
@@ -57,9 +58,12 @@ const skillSchema = {
     properties: {
         name: { type: Type.STRING, description: "Name of the skill." },
         level: { type: Type.INTEGER, description: "Current level or proficiency of the skill." },
-        isActive: { type: Type.BOOLEAN, description: "Whether the skill is currently active or relevant." }
+        description: { type: Type.STRING, description: "Short description of the skill effect.", nullable: true },
+        // Keep isActive for backward compatibility with earlier prompts
+        isActive: { type: Type.BOOLEAN, description: "Whether the skill is currently active or relevant.", nullable: true },
+        equipped: { type: Type.BOOLEAN, description: "Whether the skill is currently equipped (preferred field).", nullable: true }
     },
-    required: ["name", "level", "isActive"]
+    required: ["name", "level"]
 };
 
 const responseSchema = {
@@ -107,6 +111,18 @@ const responseSchema = {
             type: Type.ARRAY,
             items: skillSchema,
             description: "The player's current skills with levels and activation status."
+        },
+        characterStatus: {
+            type: Type.OBJECT,
+            properties: {
+                health: { type: Type.INTEGER, description: "0-100 health", nullable: true },
+                stamina: { type: Type.INTEGER, description: "0-100 stamina", nullable: true },
+                morale: { type: Type.INTEGER, description: "0-100 morale", nullable: true },
+                conditions: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Current conditions", nullable: true },
+                notes: { type: Type.STRING, description: "Status notes", nullable: true },
+            },
+            description: "Optional current character status.",
+            nullable: true,
         }
     },
     required: ["story", "translatedStory", "imagePrompt", "choices", "vocabulary", "characters", "summary", "equipment", "skills"]

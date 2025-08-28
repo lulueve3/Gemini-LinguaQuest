@@ -37,12 +37,16 @@ export interface EquipmentItem {
     name: string;
     description: string;
     equipped: boolean;
+    quantity?: number; // For items/currency; default 1
 }
 
 export interface SkillItem {
     name: string;
     level: number;
-    isActive: boolean;
+    description?: string; // Short description of effect
+    equipped?: boolean; // Replaces isActive terminology
+    // Backward-compat: isActive may still come from AI/schema
+    isActive?: boolean;
 }
 
 export interface SavedVocabularyItem extends VocabularyItem {
@@ -61,6 +65,8 @@ export interface GameState {
   vocabulary: VocabularyItem[];
   selectedChoiceIndex?: number;
   summary: string;
+  characterStatus?: CharacterStatus; // Optional per-step status
+  applyChangeActionsUsed?: number; // Per-step usage counter
 }
 
 export interface CharacterProfile {
@@ -78,6 +84,7 @@ export interface AdventureStep {
     summary: string;
     equipment: EquipmentItem[];
     skills: SkillItem[];
+    characterStatus?: CharacterStatus;
 }
 
 export interface SaveData {
@@ -87,6 +94,14 @@ export interface SaveData {
     characterProfiles: CharacterProfile[];
     equipment: EquipmentItem[];
     skills: SkillItem[];
+}
+
+export interface CharacterStatus {
+    health?: number; // 0-100
+    stamina?: number; // 0-100
+    morale?: number; // 0-100
+    conditions?: string[]; // e.g., "poisoned", "fatigued"
+    notes?: string; // free-form context notes
 }
 
 export interface PromptSuggestion {
