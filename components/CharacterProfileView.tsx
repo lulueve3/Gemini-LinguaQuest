@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { EquipmentItem, SkillItem, CharacterStatus } from "../types";
+import { EquipmentItem, SkillItem, CharacterStatus, WorldMeta } from "../types";
 
 interface Limits {
   maxEquipped: number;
@@ -18,6 +18,8 @@ interface Props {
   onApply: (equipment: EquipmentItem[], skills: SkillItem[]) => void;
   onApplyAndChange: (equipment: EquipmentItem[], skills: SkillItem[]) => void;
   onClose: () => void;
+  worldMeta: WorldMeta;
+  progressSummary: string;
 }
 
 const CharacterProfileView: React.FC<Props> = ({
@@ -29,13 +31,17 @@ const CharacterProfileView: React.FC<Props> = ({
   onApply,
   onApplyAndChange,
   onClose,
+  worldMeta,
+  progressSummary,
 }) => {
   const [localEquip, setLocalEquip] = useState<EquipmentItem[]>(equipment);
   const [localSkills, setLocalSkills] = useState<SkillItem[]>(
     skills.map((s) => ({ ...s, equipped: s.equipped ?? s.isActive ?? false }))
   );
   const [showHelp, setShowHelp] = useState(false);
+  const [showWorld, setShowWorld] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  
   const [lastDeleted, setLastDeleted] = useState<{
     type: "equip" | "skill";
     index: number;
@@ -229,6 +235,62 @@ const CharacterProfileView: React.FC<Props> = ({
             Back to Game
           </button>
         </div>
+      </div>
+
+      {/* Toggle World Context */}
+      <div className="mb-4">
+        <button
+          onClick={() => setShowWorld(v => !v)}
+          className="bg-gray-800/70 hover:bg-gray-700/90 text-purple-300 font-semibold py-2 px-4 border border-gray-600/80 rounded-lg"
+        >
+          {showWorld ? 'Hide World Context' : 'Show World Context'}
+        </button>
+      </div>
+
+      {/* Long-term World Context (read-only, above progress) */}
+      {showWorld && (
+        <div className="mb-8">
+          <h3 className="text-xl font-semibold mb-2">World Context</h3>
+          <div className="space-y-3">
+            <div>
+              <div className="text-sm text-gray-300 mb-1">Long-term Summary</div>
+              <div className="w-full bg-gray-800/40 border border-gray-700 rounded p-3 text-sm text-gray-300 min-h-[3rem] whitespace-pre-wrap">
+                {worldMeta.longTermSummary || '—'}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <div className="text-sm font-semibold mb-1">Key Events</div>
+                <ul className="space-y-1 text-sm text-gray-300 bg-gray-800/40 rounded p-3 border border-gray-700 min-h-[3rem]">
+                  {(worldMeta.keyEvents && worldMeta.keyEvents.length > 0) ? worldMeta.keyEvents.map((e, i) => (
+                    <li key={`ke-${i}`}>• {e}</li>
+                  )) : <li className="text-gray-500">—</li>}
+                </ul>
+              </div>
+              <div>
+                <div className="text-sm font-semibold mb-1">Key Characters</div>
+                <ul className="space-y-1 text-sm text-gray-300 bg-gray-800/40 rounded p-3 border border-gray-700 min-h-[3rem]">
+                  {(worldMeta.keyCharacters && worldMeta.keyCharacters.length > 0) ? worldMeta.keyCharacters.map((c, i) => (
+                    <li key={`fc-${i}`}>• {c}</li>
+                  )) : <li className="text-gray-500">—</li>}
+                </ul>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500">World context is set at game start and not editable.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Story Progress */}
+      <div className="mb-6">
+        <h3 className="text-xl font-semibold mb-2">Story Progress</h3>
+        {progressSummary ? (
+          <div className="bg-gray-800/50 p-3 rounded text-sm text-gray-300 whitespace-pre-wrap">
+            {progressSummary}
+          </div>
+        ) : (
+          <p className="text-gray-400 text-sm">No progress summary yet.</p>
+        )}
       </div>
 
       {message && (
@@ -499,3 +561,5 @@ const Tile: React.FC<{
     </div>
   );
 };
+
+// (read-only UI — editor removed)

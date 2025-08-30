@@ -21,6 +21,7 @@ export interface UserSettings {
     targetLanguage: string;
     animeStyle?: string;
     generateImages: boolean;
+    imageModel?: string; // Model used for image generation
 }
 
 export interface VocabularyItem {
@@ -94,6 +95,7 @@ export interface SaveData {
     characterProfiles: CharacterProfile[];
     equipment: EquipmentItem[];
     skills: SkillItem[];
+    worldMeta?: WorldMeta; // Optional long-term world context
 }
 
 export interface CharacterStatus {
@@ -110,6 +112,10 @@ export interface PromptSuggestion {
     worldDescription: string;
     keyCharacters: string[];
     keyEvents: string[];
+    // New world scaffolding for stronger consistency
+    rulesAndSystems: string[]; // World rules, systems, magic, politics, tech
+    charactersAndRoles: string[]; // Cast and role descriptors
+    plotAndConflict: string[]; // Core plot beats and conflicts
     // Extended player-focused details for richer setup
     playerBackground: string;
     playerRole: string;
@@ -124,4 +130,15 @@ export interface PromptSuggestion {
 export interface ImageRecord {
     id: string; // UUID
     blob: Blob;
+}
+
+// Long-term world context for guiding future steps
+export interface WorldMeta {
+    longTermSummary: string; // 1-3 sentences describing world/background themes
+    keyEvents: string[]; // Canon events to keep consistent
+    keyCharacters: string[]; // Important characters/factions to keep consistent
+    // Extended world meta to ensure consistent storytelling
+    rulesAndSystems?: string[];
+    charactersAndRoles?: string[];
+    plotAndConflict?: string[];
 }

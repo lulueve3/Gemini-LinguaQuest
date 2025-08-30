@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { LoadingState, GameState, AppScreen, UserSettings, VocabularyItem, SavedVocabularyItem, SaveData, ChoiceItem, CharacterProfile, ImageRecord, EquipmentItem, SkillItem } from './types';
+import { LoadingState, GameState, AppScreen, UserSettings, VocabularyItem, SavedVocabularyItem, SaveData, ChoiceItem, CharacterProfile, ImageRecord, EquipmentItem, SkillItem, WorldMeta } from './types';
 import { generateAdventureStep, generateAdventureImage, translateWord } from './services/geminiService';
 import { db, clearAllData, HistoryStep, SessionData } from './services/dbService';
 import { speak, stop } from './services/ttsService';
@@ -139,6 +139,7 @@ const App: React.FC = () => {
     const [characterProfiles, setCharacterProfiles] = useState<CharacterProfile[]>([]);
     const [equipment, setEquipment] = useState<EquipmentItem[]>([]);
     const [skills, setSkills] = useState<SkillItem[]>([]);
+    const [worldMeta, setWorldMeta] = useState<WorldMeta>({ longTermSummary: '', keyEvents: [], keyCharacters: [], rulesAndSystems: [], charactersAndRoles: [], plotAndConflict: [] });
     const [currentStepIndex, setCurrentStepIndex] = useState<number>(-1);
     const [loadingState, setLoadingState] = useState<LoadingState>(LoadingState.IDLE);
     const [error, setError] = useState<string | null>(null);
@@ -260,7 +261,7 @@ const App: React.FC = () => {
     const updateSaveDataInfo = useCallback(async () => {
         if (history.length > 0) {
             try {
-                const jsonBytes = JSON.stringify({ userSettings, history, currentStepIndex, characterProfiles, equipment, skills }).length;
+                const jsonBytes = JSON.stringify({ userSettings, history, currentStepIndex, characterProfiles, equipment, skills, worldMeta }).length;
                 const images = await db.images.toArray();
                 const imageBytes = images.reduce((sum, record) => sum + record.blob.size, 0);
                 const totalBytes = jsonBytes + imageBytes;
@@ -286,7 +287,7 @@ const App: React.FC = () => {
             setShowStorageWarning(false);
             setHasWarnedStorage(false);
         }
-    }, [history, userSettings, currentStepIndex, characterProfiles, equipment, skills, addToast, hasWarnedStorage]);
+    }, [history, userSettings, currentStepIndex, characterProfiles, equipment, skills, worldMeta, addToast, hasWarnedStorage]);
 
     useEffect(() => {
         updateSaveDataInfo();
@@ -300,6 +301,59 @@ const App: React.FC = () => {
         setIsRecovering(false);
         setLoadingState(LoadingState.GENERATING_STORY);
         setAppScreen(AppScreen.GAME);
+        // Set settings immediately so GAME screen doesn't render an error during first generation
+        setUserSettings(settings);
+
+        // Try to derive long-term world context from the provided prompt (if the user used the template)
+        const deriveWorldMetaFromPrompt = (text: string): WorldMeta => {
+            const meta: WorldMeta = { longTermSummary: '', keyEvents: [], keyCharacters: [], rulesAndSystems: [], charactersAndRoles: [], plotAndConflict: [] };
+            try {
+                const lines = text.split(/\r?\n/);
+                // World: <description>
+                const worldLine = lines.find(l => /^\s*World:\s*/i.test(l));
+                if (worldLine) {
+                    meta.longTermSummary = worldLine.replace(/^\s*World:\s*/i, '').trim();
+                }
+                // Collect bullets under a heading until next blank line or section
+                const collectBullets = (startIndex: number): string[] => {
+                    const out: string[] = [];
+                    for (let i = startIndex + 1; i < lines.length; i++) {
+                        const ln = lines[i];
+                        if (!ln.trim()) break; // stop at blank line
+                        if (/^\s*---/.test(ln)) break; // stop at section delimiter
+                        if (/^\s*[A-Za-z].+:\s*$/.test(ln)) break; // next heading
+                        const m = ln.match(/^\s*-\s*(.+)$/);
+                        if (m) out.push(m[1].trim());
+                        else break;
+                    }
+                    return out;
+                };
+                // Key Events
+                const kevIdx = lines.findIndex(l => /Key\s*Events\s*:/i.test(l));
+                if (kevIdx !== -1) meta.keyEvents = collectBullets(kevIdx);
+                // Key Characters/Factions
+                const kchIdx = lines.findIndex(l => /Key\s*Characters\s*\/\s*Factions\s*:/i.test(l) || /Key\s*Characters\s*:/i.test(l));
+                if (kchIdx !== -1) meta.keyCharacters = collectBullets(kchIdx);
+                // Rules and Systems
+                const rsIdx = lines.findIndex(l => /Rules\s*and\s*Systems\s*:/i.test(l));
+                if (rsIdx !== -1) meta.rulesAndSystems = collectBullets(rsIdx);
+                // Characters and Roles
+                const crIdx = lines.findIndex(l => /Characters\s*and\s*Roles\s*:/i.test(l));
+                if (crIdx !== -1) meta.charactersAndRoles = collectBullets(crIdx);
+                // Plot and Conflict
+                const pcIdx = lines.findIndex(l => /Plot\s*and\s*Conflict\s*:/i.test(l));
+                if (pcIdx !== -1) meta.plotAndConflict = collectBullets(pcIdx);
+
+                // Keep longTermSummary narrative-only; structured lists are passed separately
+            } catch (_) { /* ignore parsing errors */ }
+            return meta;
+        };
+        const seeded = deriveWorldMetaFromPrompt(settings.prompt);
+        if (seeded.longTermSummary || (seeded.keyEvents?.length ?? 0) > 0 || (seeded.keyCharacters?.length ?? 0) > 0) {
+            setWorldMeta(seeded);
+        } else {
+            setWorldMeta({ longTermSummary: '', keyEvents: [], keyCharacters: [], rulesAndSystems: [], charactersAndRoles: [], plotAndConflict: [] });
+        }
         
         try {
             await db.transaction('rw', db.session, db.history, db.images, async () => {
@@ -308,13 +362,13 @@ const App: React.FC = () => {
                 await db.images.clear();
             });
 
-            const initialStep = await generateAdventureStep(`New Game: ${settings.prompt}`, settings, []);
+            const initialStep = await generateAdventureStep(`New Game: ${settings.prompt}`, settings, [], worldMeta);
 
             let imageUrl = '';
             let imageId: string | undefined = undefined;
             if (settings.generateImages) {
                 setLoadingState(LoadingState.GENERATING_IMAGE);
-                const blob = await generateAdventureImage(initialStep.imagePrompt);
+                const blob = await generateAdventureImage(initialStep.imagePrompt, settings.imageModel);
                 imageId = crypto.randomUUID();
                 await db.images.put({ id: imageId, blob });
             }
@@ -322,8 +376,12 @@ const App: React.FC = () => {
             const { imagePrompt, characters, equipment: initEquip, skills: initSkills, summary, characterStatus, ...rest } = initialStep as any;
             const newGameState: GameState = { ...rest, imageUrl, imageId, summary, characterStatus, applyChangeActionsUsed: 0 };
 
-            setUserSettings(settings);
             setHistory([newGameState]);
+            // Initialize longTermSummary with first step summary
+            try {
+                const cumulative = [newGameState].map(h => h.summary).join(' ').replace(/The Player is/gi, 'You are');
+                setWorldMeta(prev => ({ ...prev, longTermSummary: cumulative }));
+            } catch {}
             setCurrentStepIndex(0);
             setCharacterProfiles(characters || []);
             setEquipment((initEquip || []).map(e => ({ ...e, quantity: e.quantity ?? 1 })));
@@ -403,19 +461,21 @@ const App: React.FC = () => {
             const activeSkills = skills.filter(s => (s.equipped ?? s.isActive)).map(s => `${s.name} (Lv ${s.level})`).join('; ');
 
             let context = '';
+            // Keep only non-duplicative context here; world meta will be injected by service
+            if (userSettings?.genre) context += `Genre: ${userSettings.genre}\n`;
             if (recentSummaries) context += `Previous events: ${recentSummaries}\n`;
             if (equippedItems) context += `Equipped: ${equippedItems}\n`;
             if (activeSkills) context += `Active skills: ${activeSkills}\n`;
 
             const fullPrompt = `${context}The player chose: "${choice}". Continue the story. Update summary, equipment, and skills as needed.`;
 
-            const nextStep = await generateAdventureStep(fullPrompt, userSettings!, characterProfiles);
+            const nextStep = await generateAdventureStep(fullPrompt, userSettings!, characterProfiles, worldMeta);
 
             let imageUrl = '';
             let imageId: string | undefined = undefined;
             if (userSettings?.generateImages) {
                 setLoadingState(LoadingState.GENERATING_IMAGE);
-                const blob = await generateAdventureImage(nextStep.imagePrompt);
+                const blob = await generateAdventureImage(nextStep.imagePrompt, userSettings.imageModel);
                 imageId = crypto.randomUUID();
                 await db.images.put({ id: imageId, blob });
             }
@@ -437,6 +497,11 @@ const App: React.FC = () => {
 
             const newHistory = [...updatedHistory, newGameState];
             setHistory(newHistory);
+            // Update longTermSummary to be cumulative story progress
+            try {
+                const cumulative = newHistory.map(h => h.summary).join(' ').replace(/The Player is/gi, 'You are');
+                setWorldMeta(prev => ({ ...prev, longTermSummary: cumulative }));
+            } catch {}
             setCurrentStepIndex(newHistory.length - 1);
             setCharacterProfiles(newCharacterProfiles);
             setSelectedInteractiveWords([]);
@@ -470,6 +535,8 @@ const App: React.FC = () => {
         const equippedSkills = skillList.filter(s => (s.equipped ?? s.isActive)).map(s => `${s.name} (Lv ${s.level})`).join('; ');
 
         let context = '';
+        // Always include genre and recent summaries; world meta will be injected by service
+        if (userSettings?.genre) context += `Genre: ${userSettings.genre}\n`;
         if (recentSummaries) context += `Previous events: ${recentSummaries}\n`;
         if (equippedItems) context += `Equipped: ${equippedItems}\n`;
         if (equippedSkills) context += `Equipped skills: ${equippedSkills}\n`;
@@ -478,7 +545,7 @@ const App: React.FC = () => {
 
         try {
             setLoadingState(LoadingState.GENERATING_STORY);
-            const step = await generateAdventureStep(prompt, userSettings, characterProfiles);
+            const step = await generateAdventureStep(prompt, userSettings, characterProfiles, worldMeta);
             const newChoices = step.choices;
 
             const updatedHistory = [...history];
@@ -513,7 +580,7 @@ const App: React.FC = () => {
                 }));
                 await db.history.bulkAdd(historyToSave);
 
-            const sessionData: SessionData = { id: SESSION_ID, userSettings, currentStepIndex, characterProfiles, equipment, skills };
+            const sessionData: SessionData = { id: SESSION_ID, userSettings, currentStepIndex, characterProfiles, equipment, skills, worldMeta };
                 await db.session.put(sessionData);
             });
             setHasSaveData(true);
@@ -521,7 +588,7 @@ const App: React.FC = () => {
             console.error("Auto-save failed:", e);
             addToast("Auto-save failed. Your progress may not be saved.", "error");
         }
-    }, [appScreen, history, userSettings, currentStepIndex, characterProfiles, equipment, skills, addToast]);
+    }, [appScreen, history, userSettings, currentStepIndex, characterProfiles, equipment, skills, worldMeta, addToast]);
 
     useEffect(() => {
         const timer = setTimeout(() => { autoSaveGame(); }, 2000);
@@ -553,6 +620,11 @@ const App: React.FC = () => {
             setCharacterProfiles(session.characterProfiles);
             setEquipment((session.equipment || []).map(e => ({ ...e, quantity: e.quantity ?? 1 })));
             setSkills(normalizeSkills(session.skills || []));
+            setWorldMeta(session.worldMeta ? ({
+                ...session.worldMeta,
+                // Back-compat: map futureCharacters -> keyCharacters if needed
+                keyCharacters: (session.worldMeta as any).keyCharacters ?? (session.worldMeta as any).futureCharacters ?? [],
+            } as WorldMeta) : { longTermSummary: '', keyEvents: [], keyCharacters: [], rulesAndSystems: [], charactersAndRoles: [], plotAndConflict: [] });
             setAppScreen(AppScreen.GAME);
         } catch (e) {
             console.error("Failed to continue game:", e);
@@ -595,6 +667,10 @@ const App: React.FC = () => {
             setCharacterProfiles(data.characterProfiles || []);
             setEquipment(data.equipment || []);
             setSkills(data.skills || []);
+            setWorldMeta(data.worldMeta ? ({
+                ...data.worldMeta,
+                keyCharacters: (data.worldMeta as any).keyCharacters ?? (data.worldMeta as any).futureCharacters ?? [],
+            } as WorldMeta) : { longTermSummary: '', keyEvents: [], keyCharacters: [], rulesAndSystems: [], charactersAndRoles: [], plotAndConflict: [] });
             setAppScreen(AppScreen.GAME);
             
             await autoSaveGame(); 
@@ -622,7 +698,7 @@ const App: React.FC = () => {
                 })
             );
 
-            const saveData: SaveData = { userSettings, history: historyWithImages, currentStepIndex, characterProfiles, equipment, skills };
+            const saveData: SaveData = { userSettings, history: historyWithImages, currentStepIndex, characterProfiles, equipment, skills, worldMeta };
             const jsonString = JSON.stringify(saveData);
             const blob = new Blob([jsonString], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
@@ -779,6 +855,8 @@ const App: React.FC = () => {
                             maxApplyChangePerStep: MAX_APPLY_CHANGE_PER_STEP,
                         }}
                         applyChangeRemaining={(history[currentStepIndex]?.applyChangeActionsUsed ?? 0) >= MAX_APPLY_CHANGE_PER_STEP ? 0 : (MAX_APPLY_CHANGE_PER_STEP - (history[currentStepIndex]?.applyChangeActionsUsed ?? 0))}
+                        worldMeta={worldMeta}
+                        progressSummary={history.length > 0 ? history.map(h => h.summary).join(' ').replace(/The Player is/gi, 'You are') : ''}
                         onApply={(equip, skillList) => {
                             if (equip.length > MAX_INVENTORY) {
                                 addToast(`Inventory exceeds ${MAX_INVENTORY} items.`, 'error');
@@ -802,6 +880,15 @@ const App: React.FC = () => {
                 );
             case AppScreen.GAME:
                 if (!gameState || !userSettings) {
+                    // During initial generation or recovery, show a loading screen instead of error
+                    if (isLoading) {
+                        return (
+                            <div className="flex h-screen items-center justify-center flex-col gap-3">
+                                <LoadingSpinner />
+                                <p className="text-gray-400">Preparing your adventure...</p>
+                            </div>
+                        );
+                    }
                     return (
                         <div className="flex h-screen items-center justify-center">
                             <p>Error: Game state is missing. <button onClick={() => setAppScreen(AppScreen.SETUP)} className="underline">Go to Setup</button></p>
@@ -810,24 +897,21 @@ const App: React.FC = () => {
                 }
                 return (
                     <div className="min-h-screen flex flex-col md:flex-row">
-                        <div className={`relative w-full md:w-1/2 bg-black flex items-center justify-center group transition-all duration-500 ${isImageFullscreen ? 'fixed inset-0 z-40' : ''}`} onClick={() => currentImageUrl && setIsImageFullscreen(!isImageFullscreen)}>
-                            {loadingState === LoadingState.GENERATING_IMAGE ? (
-                                <div className="text-center"><LoadingSpinner /><p className="mt-4 text-gray-400">Conjuring visuals...</p></div>
-                            ) : currentImageUrl ? (
-                                <>
-                                    <img src={currentImageUrl} alt="Adventure scene" className={`object-contain w-full h-full transition-opacity duration-500 ${isImageFullscreen ? 'cursor-zoom-out' : 'cursor-zoom-in'}`} />
-                                    <div className="absolute bottom-2 right-2 bg-black/50 p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 1v4m0 0h-4m4 0l-5-5" /></svg>
-                                    </div>
-                                </>
-                            ) : (
-                                <div className="text-center text-gray-500 flex flex-col items-center">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-24 w-24" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                    <p className="mt-2">Image generation is disabled.</p>
-                                </div>
-                            )}
-                        </div>
-                        <main className="w-full md:w-1/2 p-4 md:p-8 flex flex-col overflow-y-auto" style={{maxHeight: '100vh'}}>
+                        {userSettings.generateImages && (
+                            <div className={`relative w-full md:w-1/2 bg-black flex items-center justify-center group transition-all duration-500 ${isImageFullscreen ? 'fixed inset-0 z-40' : ''}`} onClick={() => currentImageUrl && setIsImageFullscreen(!isImageFullscreen)}>
+                                {loadingState === LoadingState.GENERATING_IMAGE ? (
+                                    <div className="text-center"><LoadingSpinner /><p className="mt-4 text-gray-400">Conjuring visuals...</p></div>
+                                ) : currentImageUrl ? (
+                                    <>
+                                        <img src={currentImageUrl} alt="Adventure scene" className={`object-contain w-full h-full transition-opacity duration-500 ${isImageFullscreen ? 'cursor-zoom-out' : 'cursor-zoom-in'}`} />
+                                        <div className="absolute bottom-2 right-2 bg-black/50 p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 1v4m0 0h-4m4 0l-5-5" /></svg>
+                                        </div>
+                                    </>
+                                ) : null}
+                            </div>
+                        )}
+                        <main className={`w-full ${userSettings.generateImages ? 'md:w-1/2' : 'md:w-full'} p-4 md:p-8 flex flex-col overflow-y-auto`} style={{maxHeight: '100vh'}}>
                             <header className="flex justify-between items-center mb-4 border-b border-gray-700 pb-4 flex-wrap gap-y-2">
                                 <h1 className="text-2xl font-bold text-purple-300">{userSettings.genre}</h1>
                                 <div className="flex gap-2 items-center flex-wrap">
@@ -990,3 +1074,8 @@ const App: React.FC = () => {
 };
 
 export default App;
+
+
+
+
+
