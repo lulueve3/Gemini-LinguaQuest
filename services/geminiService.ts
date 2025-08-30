@@ -694,7 +694,8 @@ export const generateAdventureImage = async (
         if (base64) {
           const byteChars = atob(base64);
           const byteNums = new Array(byteChars.length);
-          for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+          for (let i = 0; i < byteChars.length; i++)
+            byteNums[i] = byteChars.charCodeAt(i);
           const byteArray = new Uint8Array(byteNums);
           return new Blob([byteArray], { type: mime });
         }
@@ -710,9 +711,7 @@ export const generateAdventureImage = async (
           config: {
             responseModalities: ["IMAGE", "TEXT"],
           },
-          contents: [
-            { role: "user", parts: [{ text: String(prompt) }] },
-          ],
+          contents: [{ role: "user", parts: [{ text: String(prompt) }] }],
         });
         for await (const chunk of stream as any) {
           const parts: any[] = chunk?.candidates?.[0]?.content?.parts || [];
@@ -723,7 +722,8 @@ export const generateAdventureImage = async (
               const mime: string = inline.mimeType || "image/png";
               const byteChars = atob(base64);
               const byteNums = new Array(byteChars.length);
-              for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+              for (let i = 0; i < byteChars.length; i++)
+                byteNums[i] = byteChars.charCodeAt(i);
               const byteArray = new Uint8Array(byteNums);
               return new Blob([byteArray], { type: mime });
             }
@@ -747,7 +747,8 @@ export const generateAdventureImage = async (
           const mime = (part.inlineData.mimeType as string) || "image/png";
           const byteChars = atob(base64);
           const byteNums = new Array(byteChars.length);
-          for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+          for (let i = 0; i < byteChars.length; i++)
+            byteNums[i] = byteChars.charCodeAt(i);
           const byteArray = new Uint8Array(byteNums);
           return new Blob([byteArray], { type: mime });
         }

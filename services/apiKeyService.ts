@@ -92,8 +92,15 @@ const switchToNextKey = (): boolean => {
   return true;
 };
 
-const onChange = (cb: Listener) => {
+const onChange = (cb: Listener): (() => void) => {
   listeners.push(cb);
+  return () => {
+    listeners = listeners.filter((l) => l !== cb);
+  };
+};
+
+const offChange = (cb: Listener) => {
+  listeners = listeners.filter((l) => l !== cb);
 };
 
 export default {
@@ -105,4 +112,5 @@ export default {
   removeKey,
   switchToNextKey,
   onChange,
+  offChange,
 };

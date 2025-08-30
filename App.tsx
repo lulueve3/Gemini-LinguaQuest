@@ -237,21 +237,26 @@ const App: React.FC = () => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
 
-    const addToast = useCallback((message: string, type: 'error' | 'success' = 'error', duration: number = 6000) => {
+    const addToast = useCallback((message: string, type: 'error' | 'success' = 'error', duration?: number) => {
         const id = Date.now();
         setToasts(prev => [...prev, { id, message, type }]);
+        const autoCloseMs = typeof duration === 'number' ? duration : (type === 'success' ? 5000 : 10000);
         setTimeout(() => {
             setToasts(prev => prev.filter(t => t.id !== id));
-        }, duration);
+        }, autoCloseMs);
     }, []);
 
     useEffect(() => {
-        apiKeyService.onChange((key, changeType) => {
+        const handler = (key: string, changeType: 'manual' | 'auto') => {
             if (changeType === 'auto') {
                 const masked = `${key.slice(0,6)}...${key.slice(-4)}`;
                 addToast(`API key exhausted. Switched to ${masked}`, 'success');
             }
-        });
+        };
+        const unsubscribe = apiKeyService.onChange(handler);
+        return () => {
+            try { unsubscribe?.(); } catch {}
+        };
     }, [addToast]);
 
     const removeToast = (id: number) => {
