@@ -11,6 +11,7 @@ export enum AppScreen {
   GAME,
   NOTEBOOK,
   API_KEY_MANAGER,
+  PROFILE,
 }
 
 export interface UserSettings {
@@ -20,6 +21,7 @@ export interface UserSettings {
     targetLanguage: string;
     animeStyle?: string;
     generateImages: boolean;
+    imageModel?: string; // Model used for image generation
 }
 
 export interface VocabularyItem {
@@ -32,6 +34,22 @@ export interface ChoiceItem {
     translatedChoice: string;
 }
 
+export interface EquipmentItem {
+    name: string;
+    description: string;
+    equipped: boolean;
+    quantity?: number; // For items/currency; default 1
+}
+
+export interface SkillItem {
+    name: string;
+    level: number;
+    description?: string; // Short description of effect
+    equipped?: boolean; // Replaces isActive terminology
+    // Backward-compat: isActive may still come from AI/schema
+    isActive?: boolean;
+}
+
 export interface SavedVocabularyItem extends VocabularyItem {
     id: string;
     dateAdded: string;
@@ -40,13 +58,16 @@ export interface SavedVocabularyItem extends VocabularyItem {
 }
 
 export interface GameState {
-  story: string; 
-  translatedStory: string; 
+  story: string;
+  translatedStory: string;
   imageUrl: string; // Used for save file (base64)
   imageId?: string; // Used for DB reference
   choices: ChoiceItem[];
   vocabulary: VocabularyItem[];
   selectedChoiceIndex?: number;
+  summary: string;
+  characterStatus?: CharacterStatus; // Optional per-step status
+  applyChangeActionsUsed?: number; // Per-step usage counter
 }
 
 export interface CharacterProfile {
@@ -61,6 +82,10 @@ export interface AdventureStep {
     choices: ChoiceItem[];
     vocabulary: VocabularyItem[];
     characters: CharacterProfile[];
+    summary: string;
+    equipment: EquipmentItem[];
+    skills: SkillItem[];
+    characterStatus?: CharacterStatus;
 }
 
 export interface SaveData {
@@ -68,6 +93,17 @@ export interface SaveData {
     history: GameState[];
     currentStepIndex: number;
     characterProfiles: CharacterProfile[];
+    equipment: EquipmentItem[];
+    skills: SkillItem[];
+    worldMeta?: WorldMeta; // Optional long-term world context
+}
+
+export interface CharacterStatus {
+    health?: number; // 0-100
+    stamina?: number; // 0-100
+    morale?: number; // 0-100
+    conditions?: string[]; // e.g., "poisoned", "fatigued"
+    notes?: string; // free-form context notes
 }
 
 export interface PromptSuggestion {
@@ -76,6 +112,10 @@ export interface PromptSuggestion {
     worldDescription: string;
     keyCharacters: string[];
     keyEvents: string[];
+    // New world scaffolding for stronger consistency
+    rulesAndSystems: string[]; // World rules, systems, magic, politics, tech
+    charactersAndRoles: string[]; // Cast and role descriptors
+    plotAndConflict: string[]; // Core plot beats and conflicts
     // Extended player-focused details for richer setup
     playerBackground: string;
     playerRole: string;
@@ -90,4 +130,15 @@ export interface PromptSuggestion {
 export interface ImageRecord {
     id: string; // UUID
     blob: Blob;
+}
+
+// Long-term world context for guiding future steps
+export interface WorldMeta {
+    longTermSummary: string; // 1-3 sentences describing world/background themes
+    keyEvents: string[]; // Canon events to keep consistent
+    keyCharacters: string[]; // Important characters/factions to keep consistent
+    // Extended world meta to ensure consistent storytelling
+    rulesAndSystems?: string[];
+    charactersAndRoles?: string[];
+    plotAndConflict?: string[];
 }
