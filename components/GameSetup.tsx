@@ -34,7 +34,7 @@ const GameSetup: React.FC<GameSetupProps> = ({
   const [targetLanguage, setTargetLanguage] = useState("Vietnamese");
   const [animeName, setAnimeName] = useState("");
   const [isSuggesting, setIsSuggesting] = useState(false);
-  const [generateImages, setGenerateImages] = useState(true);
+  const [generateImages, setGenerateImages] = useState(false);
   const [imageModel, setImageModel] = useState(
     "gemini-2.5-flash-image-preview"
   );
