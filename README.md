@@ -24,4 +24,4 @@ https://gemini-linguaquest-1.onrender.com
 3. Run the app:
    `npm run dev`
 
-## All feedback on features and bugs is welcome
+## All feedback on features and bugs is welcome: giotocdo@gmail.com
