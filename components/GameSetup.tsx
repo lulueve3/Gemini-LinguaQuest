@@ -441,6 +441,8 @@ ${result.prompt}`;
                     </option>
                     <option value="imagen-3.0-generate-002">imagen-3.0-generate-002</option>
                     <option value="imagen-4.0-generate-001">imagen-4.0-generate-001</option>
+                    <option value="deepai-text2img">deepai-text2img</option>
+                    <option value="kling-v2-1">kling-v2-1</option>
                   </select>
                 </div>
               )}

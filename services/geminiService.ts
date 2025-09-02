@@ -1,4 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
+import deepAiService from "./deepAiService";
+import klingAiService from "./klingAiService";
 import {
   AdventureStep,
   UserSettings,
@@ -676,6 +678,18 @@ export const generateAdventureImage = async (
   try {
     const imageModel = model || defaultImageModel;
     logApiStart("generateAdventureImage", imageModel, prompt);
+
+    // Branch 0: DeepAI text2img
+    if (imageModel === "deepai-text2img" || imageModel?.toLowerCase().startsWith("deepai")) {
+      const blob = await deepAiService.generateImageWithDeepAI(prompt);
+      return blob;
+    }
+
+    // Branch 0.5: KlingAI text2img (kling-v2-1)
+    if (imageModel === "kling-v2-1" || imageModel?.toLowerCase().startsWith("kling")) {
+      const blob = await klingAiService.generateImageWithKling(prompt);
+      return blob;
+    }
 
     // Branch 1: Imagen models via models.generateImages
     if (/^imagen-/.test(imageModel)) {

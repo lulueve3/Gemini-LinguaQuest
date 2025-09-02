@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import apiKeyService from '../services/apiKeyService';
+import deepAiService from '../services/deepAiService';
+import klingAiService from '../services/klingAiService';
 
 interface Props {
   onBack: () => void;
@@ -16,6 +18,13 @@ const ApiKeyManager: React.FC<Props> = ({ onBack, onToast }) => {
   const [keys, setKeys] = useState<string[]>([]);
   const [newKey, setNewKey] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
+  // DeepAI state
+  const [deepAiKey, setDeepAiKey] = useState<string>('');
+  const [deepAiExisting, setDeepAiExisting] = useState<string | null>(null);
+  // KlingAI state
+  const [klingAccessKey, setKlingAccessKey] = useState<string>('');
+  const [klingSecretKey, setKlingSecretKey] = useState<string>('');
+  const [klingAccessExisting, setKlingAccessExisting] = useState<string | null>(null);
 
   const refresh = () => {
     const all = apiKeyService.getKeys();
@@ -27,6 +36,18 @@ const ApiKeyManager: React.FC<Props> = ({ onBack, onToast }) => {
 
   useEffect(() => {
     refresh();
+    try {
+      const existing = deepAiService.getApiKey();
+      setDeepAiExisting(existing || null);
+      setDeepAiKey(existing || '');
+    } catch {}
+    try {
+      const kk = klingAiService.getAccessKey();
+      const ks = klingAiService.getSecretKey();
+      setKlingAccessExisting(kk || null);
+      setKlingAccessKey(kk || '');
+      setKlingSecretKey(ks || '');
+    } catch {}
   }, []);
 
   const handleAdd = () => {
@@ -53,6 +74,64 @@ const ApiKeyManager: React.FC<Props> = ({ onBack, onToast }) => {
   const handleRemove = (index: number) => {
     apiKeyService.removeKey(index);
     refresh();
+  };
+
+  const handleSaveDeepAi = () => {
+    const k = deepAiKey.trim();
+    if (!k) {
+      onToast('Please enter a DeepAI API key.', 'error');
+      return;
+    }
+    try {
+      deepAiService.setApiKey(k);
+      setDeepAiExisting(k);
+      onToast('DeepAI API key saved.', 'success');
+    } catch (e) {
+      onToast('Failed to save DeepAI API key.', 'error');
+    }
+  };
+
+  const handleClearDeepAi = () => {
+    try {
+      deepAiService.clearApiKey();
+      setDeepAiExisting(null);
+      setDeepAiKey('');
+      onToast('DeepAI API key cleared.', 'success');
+    } catch (e) {
+      onToast('Failed to clear DeepAI API key.', 'error');
+    }
+  };
+
+  const handleSaveKling = () => {
+    if (!klingAccessKey.trim()) {
+      onToast('Please enter a KlingAI Access Key.', 'error');
+      return;
+    }
+    if (!klingSecretKey.trim()) {
+      onToast('Please enter a KlingAI Secret Key.', 'error');
+      return;
+    }
+    try {
+      klingAiService.setAccessKey(klingAccessKey.trim());
+      klingAiService.setSecretKey(klingSecretKey.trim());
+      setKlingAccessExisting(klingAccessKey.trim());
+      onToast('KlingAI settings saved.', 'success');
+    } catch {
+      onToast('Failed to save KlingAI settings.', 'error');
+    }
+  };
+
+  const handleClearKling = () => {
+    try {
+      klingAiService.clearAccessKey();
+      klingAiService.clearSecretKey();
+      setKlingAccessExisting(null);
+      setKlingAccessKey('');
+      setKlingSecretKey('');
+      onToast('KlingAI settings cleared.', 'success');
+    } catch {
+      onToast('Failed to clear KlingAI settings.', 'error');
+    }
   };
 
   return (
@@ -85,6 +164,57 @@ const ApiKeyManager: React.FC<Props> = ({ onBack, onToast }) => {
             className="flex-grow bg-gray-800 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-purple-500"
           />
           <button onClick={handleAdd} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">Add</button>
+        </div>
+
+        <div className="mb-8 border-t border-gray-700 pt-6">
+          <h3 className="text-xl font-semibold mb-3 text-purple-300">DeepAI API Key</h3>
+          <p className="text-sm text-gray-400 mb-3">Used when selecting image model "deepai-text2img".</p>
+          <div className="flex gap-2 mb-2">
+            <input
+              type="text"
+              value={deepAiKey}
+              onChange={e => setDeepAiKey(e.target.value)}
+              placeholder="Enter DeepAI API key"
+              className="flex-grow bg-gray-800 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-purple-500"
+            />
+            <button onClick={handleSaveDeepAi} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Save</button>
+            <button onClick={handleClearDeepAi} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">Clear</button>
+          </div>
+          {deepAiExisting && (
+            <div className="text-sm text-gray-400">Current: {maskKey(deepAiExisting)}</div>
+          )}
+        </div>
+
+        <div className="mb-8 border-t border-gray-700 pt-6">
+          <h3 className="text-xl font-semibold mb-3 text-purple-300">KlingAI Settings</h3>
+          <p className="text-sm text-gray-400 mb-3">Used when selecting image model "kling-v2-1". Enter your Access Key and Secret Key. Endpoint is preconfigured.</p>
+          <div className="flex gap-2 mb-2">
+            <input
+              type="text"
+              value={klingAccessKey}
+              onChange={e => setKlingAccessKey(e.target.value)}
+              placeholder="Enter KlingAI Access Key"
+              className="flex-grow bg-gray-800 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-purple-500"
+            />
+          </div>
+          <div className="flex gap-2 mb-2">
+            <input
+              type="password"
+              value={klingSecretKey}
+              onChange={e => setKlingSecretKey(e.target.value)}
+              placeholder="Enter KlingAI Secret Key"
+              className="flex-grow bg-gray-800 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-purple-500"
+            />
+          </div>
+          <div className="flex gap-2 mb-2">
+            <button onClick={handleSaveKling} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Save</button>
+            <button onClick={handleClearKling} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">Clear</button>
+          </div>
+          {(klingAccessExisting) && (
+            <div className="text-sm text-gray-400">
+              {klingAccessExisting && <>Access Key: {maskKey(klingAccessExisting)}<br/></>}
+            </div>
+          )}
         </div>
         <div className="text-center">
           <button onClick={onBack} className="underline">Back</button>
