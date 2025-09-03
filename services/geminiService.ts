@@ -183,9 +183,9 @@ const responseSchema = {
       type: Type.ARRAY,
       items: choiceSchema,
       description:
-        "An array of exactly 4 distinct, actionable choices for the player, each with a source language text and a target language translation.",
-      minItems: 4,
-      maxItems: 4,
+        "An array of exactly 6 distinct, actionable choices for the player. Cover a diverse mix: risky action, safe/defensive, social/dialogue, exploration/investigation, resource/status-driven (use current stats/equipment), and a wildcard/creative option. Each item must include source text and target translation.",
+      minItems: 6,
+      maxItems: 6,
     },
     vocabulary: {
       type: Type.ARRAY,
@@ -393,12 +393,36 @@ For each step, you must provide:
 1. A compelling story segment in the user-specified source language.
 2. An accurate translation of that segment into the target language.
 3. A visually descriptive prompt for an image generation model that captures the scene. If a specific visual style (like an anime/manga) is requested, you MUST ensure the image prompt strongly incorporates and maintains that style. You MUST also use the provided character descriptions for consistency.
-4. Exactly 4 distinct choices for the player, each with text in both the source and target languages.
+4. Exactly 6 distinct choices for the player, each with text in both the source and target languages. Ensure diversity: (1) risky action, (2) safe/defensive, (3) social/dialogue (use relationships), (4) exploration/investigation, (5) resource/status-driven (use current stats/equipment), (6) wildcard/creative.
 5. A list of 5-7 useful vocabulary words from the story segment, with their translations.
 6. Any changes to the player's equipment and skills.
 7. A list of character profiles for any new or changed characters/monsters.
 8. A 'summary' that succinctly captures the player's current status/progress written in second person (e.g., 'You are ...'). Do NOT write 'The player is ...'.
-You must respond ONLY with a valid JSON object matching the provided schema. The story should be continuous and react to the player's choices and initial prompt.`;
+You must respond ONLY with a valid JSON object matching the provided schema. The story should be continuous and react to the player's choices and initial prompt.
+
+--- Stats and Status Rules ---
+Track and UPDATE the player's stats each step using characterStatus (for core bars) and characterStatus.custom (for tag-driven stats). Use a 0–100 scale for all bars. Base which stats you track on the world's selected tags:
+- Fantasy: health, stamina, mana, morale
+- Sci-Fi: health, stamina, energy, morale
+- Romance/Harem: charm, heart, social
+- School Life: social, grades, stamina, stress
+- Apocalypse: health, hunger, thirst
+- Combat: health, stamina, energy, weapon_proficiency
+- Adventure: health, stamina
+- Magic: mana (add this in addition to other tags)
+
+Guidelines:
+- Apply small, meaningful changes most steps (±5–20) unless a critical event justifies a larger swing.
+- Tie changes to context: casting spells reduces mana; sprinting or travel without rest reduces stamina; tense social events increase stress; using tech weapons reduces energy.
+- Consider equipment/skills/relationships when adjusting values (e.g., a canteen reduces thirst impact; a mentor trait can soften morale loss).
+- If a stat is not touched by the events of this step, keep its current value; do not reset to defaults.
+
+Concrete examples:
+- Tags: Apocalypse + Adventure. Choice “Travel through the night without rest” → stamina −15, hunger +10, thirst +15, morale −5.
+- Tags: Romance + School Life. Choice “Confess feelings before exams” → charm +5, heart +10, social +5, stress +5, grades −3.
+- Tags: Combat + Sci‑Fi. Choice “Overcharge blaster and rush in” → energy −20, health −5 (if hit), weapon_proficiency +5 (on success).
+- Tags: Magic. Choice “Cast a high‑tier spell” → mana −15; if mana is low next step, suggest safer options.
+`;
 
 const getApiErrorMessage = (error: unknown): string => {
   const defaultMessage =
@@ -525,22 +549,20 @@ export const generateAdventureStep = async (
           const lines = relationships.map(r => {
             const parts: string[] = [];
             parts.push(`with: ${r.with}`);
-            parts.push(`type: ${r.type}`);
-            if (typeof r.affection === 'number') parts.push(`affection: ${r.affection}`);
-            if (typeof r.trust === 'number') parts.push(`trust: ${r.trust}`);
-            if (typeof r.loyalty === 'number') parts.push(`loyalty: ${r.loyalty}`);
-            if (typeof r.jealousy === 'number') parts.push(`jealousy: ${r.jealousy}`);
-            if (r.notes) parts.push(`notes: ${r.notes}`);
+            if (typeof (r as any).coreValue === 'number') parts.push(`coreValue: ${(r as any).coreValue}`);
+            const traits = (r as any).traits as string[] | undefined;
+            if (Array.isArray(traits) && traits.length) parts.push(`traits: ${traits.join(', ')}`);
+            const hist = (r as any).history as string[] | undefined;
+            if (Array.isArray(hist) && hist.length) parts.push(`history: ${hist.slice(-3).join(' | ')}`);
+            if ((r as any).notes) parts.push(`notes: ${(r as any).notes}`);
             return `- ${parts.join('; ')}`;
           }).join("\n");
-          const guidance = (settings.tags?.includes(GameTag.Romance) || settings.tags?.includes(GameTag.Harem))
-            ? "For romance/harem dynamics, keep affection/trust consistent, avoid sudden shifts without narrative cause, and reflect jealousy/loyalty tensions in dialogue and choices."
-            : "Maintain continuity of relationships, adjusting gradually based on events. Do not contradict existing relationship facts.";
-          return `\n\n--- Relationship Context (Maintain and Update Consistently) ---\nGuidance: ${guidance}\nRelationships:\n${lines}`;
+          const guidance = "Use coreValue (-100 hostile to +100 close) to set overall tone. Use traits to shape voice and likely actions (e.g., Crush -> shy caring; Rival+Respected -> challenging but respectful). Reference recent history when natural.";
+          return `\n\n--- Relationship Context (Maintain and Evolve) ---\nGuidance: ${guidance}\nRelationships:\n${lines}`;
         })()
       : "";
 
-    const fullPrompt = `${prompt}${characterContext}${worldMetaContext}${relationshipContext}\n\nGame settings:\nSource Language: ${settings.sourceLanguage}\nTarget Language: ${settings.targetLanguage}\nGenre: ${settings.genre}${styleInstruction}`;
+    const fullPrompt = `${prompt}${characterContext}${worldMetaContext}${relationshipContext}\n\nGame settings:\nSource Language: ${settings.sourceLanguage}\nTarget Language: ${settings.targetLanguage}\nGenre: ${settings.genre}${styleInstruction}\n\nChoice requirements:\n- Provide exactly 6 diverse options as instructed.\n- Ensure options are actionable, concise, and reflect stats, equipment, relationships, and world rules.\n- Avoid near-duplicates; vary risk, social vs. action, and consequences.`;
 
     const reqCfg = {
       systemInstruction: systemInstruction,
@@ -567,7 +589,7 @@ export const generateAdventureStep = async (
       parsedJson.imagePrompt &&
       typeof parsedJson.summary === "string" &&
       Array.isArray(parsedJson.choices) &&
-      parsedJson.choices.length === 4 &&
+      parsedJson.choices.length === 6 &&
       Array.isArray(parsedJson.vocabulary) &&
       Array.isArray(parsedJson.characters) &&
       Array.isArray(parsedJson.equipment) &&

@@ -163,23 +163,32 @@ export enum GameTag {
 }
 
 // Relationship system for romance/harem and social-heavy worlds
-export type RelationshipType =
-  | 'friend'
-  | 'rival'
-  | 'romance'
-  | 'family'
-  | 'teammate'
-  | 'mentor'
-  | 'enemy'
-  | 'haremCandidate';
+export type RelationshipTrait =
+  | 'Trusted'
+  | 'Respected'
+  | 'Admired'
+  | 'Protected'
+  | 'Protective'
+  | 'Loyal'
+  | 'Crush'
+  | 'In Love'
+  | 'Mentor'
+  | 'Rival'
+  | 'Jealous'
+  | 'Manipulative'
+  | 'Betrayed'
+  | 'Betrayer'
+  | 'Feared'
+  | 'Fearful'
+  | 'Hated'
+  | 'Deceived'
+  | string; // allow custom traits
 
 export interface RelationshipEdge {
-    with: string; // Character name (assume player <-> NPC)
-    type: RelationshipType;
-    affection?: number;   // 0-100
-    trust?: number;       // 0-100
-    jealousy?: number;    // 0-100 (useful for harem dynamics)
-    loyalty?: number;     // 0-100
+    with: string; // Character name
+    coreValue?: number; // -100..100, overall relationship value
+    traits?: RelationshipTrait[]; // descriptive tags
+    history?: string[]; // recent key events (3-5)
     notes?: string;
     lastUpdated?: string; // ISO string
 }

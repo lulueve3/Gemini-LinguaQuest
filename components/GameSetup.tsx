@@ -275,73 +275,7 @@ ${result.prompt}`;
             </ul>
           </div>
 
-          {/* World Tags */}
-          <div className="mb-6 p-4 bg-gray-800/30 border border-gray-700/50 rounded-lg text-left">
-            <h3 className="text-lg font-semibold text-purple-300 mb-2">World Tags (optional)</h3>
-            <p className="text-sm text-gray-400 mb-3">Select tags to customize status and systems. Hover cards to learn what stats each tag adds.</p>
-
-            {/* Tag cards with descriptions */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-              {([
-                { key: GameTag.Fantasy, label: 'Fantasy', desc: 'Swords, sorcery, and heroic quests.', adds: ['Health', 'Stamina', 'Mana', 'Morale'] },
-                { key: GameTag.SciFi, label: 'Sci-Fi', desc: 'Hi-tech gear, space travel, energy systems.', adds: ['Health', 'Stamina', 'Energy', 'Morale'] },
-                { key: GameTag.Romance, label: 'Romance', desc: 'Focus on relationships and social interactions.', adds: ['Charm', 'Heart', 'Social'] },
-                { key: GameTag.SchoolLife, label: 'School Life', desc: 'Campus life, study, social and stress.', adds: ['Social', 'Grades', 'Stamina', 'Stress'] },
-                { key: GameTag.Apocalypse, label: 'Apocalypse', desc: 'Harsh survival under extreme conditions.', adds: ['Health', 'Hunger', 'Thirst'] },
-                { key: GameTag.Combat, label: 'Combat', desc: 'Battle-heavy world and fighting progression.', adds: ['Health', 'Stamina', 'Energy', 'Weapon Proficiency'] },
-                { key: GameTag.Adventure, label: 'Adventure', desc: 'Exploration-focused, classic adventure pacing.', adds: ['Health', 'Stamina'] },
-                { key: GameTag.Magic, label: 'Magic', desc: 'Add magical resource to any world.', adds: ['Mana'] },
-                { key: GameTag.Harem, label: 'Harem', desc: 'Multiple romance routes and dynamics.', adds: ['Charm', 'Social'] },
-              ] as const).map(({ key, label, desc, adds }) => (
-                <label
-                  key={key}
-                  className={`group relative border rounded-md p-3 cursor-pointer transition-colors ${
-                    tags.includes(key)
-                      ? 'border-purple-600 bg-purple-900/10'
-                      : 'border-gray-700 bg-gray-800/40 hover:bg-gray-800'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <input
-                      type="checkbox"
-                      className="form-checkbox h-4 w-4 text-purple-600 mt-1"
-                      checked={tags.includes(key)}
-                      onChange={(e) => {
-                        setTagsTouched(true);
-                        setTags((prev) =>
-                          e.target.checked ? [...prev, key] : prev.filter((t) => t !== key)
-                        );
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                    <div>
-                      <div className="text-sm font-semibold text-gray-200">{label}</div>
-                      <div className="text-xs text-gray-400">{desc}</div>
-                      <div className="mt-1 text-xs text-gray-300">
-                        Adds: <span className="text-gray-200">{adds.join(', ')}</span>
-                      </div>
-                    </div>
-                  </div>
-                </label>
-              ))}
-            </div>
-
-            {/* Live stats preview based on selected tags */}
-            <div className="mt-4">
-              <div className="text-sm font-semibold text-gray-300 mb-1">Stats Preview</div>
-              <div className="flex flex-wrap gap-2">
-                {buildCharacterSchema(tags).map((f) => (
-                  <span key={f.key} className="text-xs px-2 py-1 rounded border border-gray-700 bg-gray-800/60 text-gray-200">
-                    {f.label}
-                  </span>
-                ))}
-                {buildCharacterSchema(tags).length === 0 && (
-                  <span className="text-xs text-gray-500">No stats selected</span>
-                )}
-              </div>
-              <div className="mt-1 text-xs text-gray-500">No default stats. Select tags to add stats.</div>
-            </div>
-          </div>
+          
 
           <form
             onSubmit={handleSubmit}
@@ -497,6 +431,72 @@ ${result.prompt}`;
                       className="w-full bg-gray-800 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-purple-500"
                     />
                   </div>
+                </div>
+              </div>
+
+              {/* World Tags (moved below Story Genre) */}
+              <div className="mt-2 p-4 bg-gray-800/30 border border-gray-700/50 rounded-lg text-left">
+                <h3 className="text-lg font-semibold text-purple-300 mb-2">World Tags (optional)</h3>
+                <p className="text-sm text-gray-400 mb-3">Select tags to customize status and systems. Hover cards to learn what stats each tag adds.</p>
+
+                {/* Tag cards with descriptions */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                  {([
+                    { key: GameTag.Fantasy, label: 'Fantasy', desc: 'Swords, sorcery, and heroic quests.', adds: ['Health', 'Stamina', 'Mana', 'Morale'] },
+                    { key: GameTag.SciFi, label: 'Sci-Fi', desc: 'Hi-tech gear, space travel, energy systems.', adds: ['Health', 'Stamina', 'Energy', 'Morale'] },
+                    { key: GameTag.Romance, label: 'Romance', desc: 'Focus on relationships and social interactions.', adds: ['Charm', 'Heart', 'Social'] },
+                    { key: GameTag.SchoolLife, label: 'School Life', desc: 'Campus life, study, social and stress.', adds: ['Social', 'Grades', 'Stamina', 'Stress'] },
+                    { key: GameTag.Apocalypse, label: 'Apocalypse', desc: 'Harsh survival under extreme conditions.', adds: ['Health', 'Hunger', 'Thirst'] },
+                    { key: GameTag.Combat, label: 'Combat', desc: 'Battle-heavy world and fighting progression.', adds: ['Health', 'Stamina', 'Energy', 'Weapon Proficiency'] },
+                    { key: GameTag.Adventure, label: 'Adventure', desc: 'Exploration-focused, classic adventure pacing.', adds: ['Health', 'Stamina'] },
+                    { key: GameTag.Magic, label: 'Magic', desc: 'Add magical resource to any world.', adds: ['Mana'] },
+                    { key: GameTag.Harem, label: 'Harem', desc: 'Multiple romance routes and dynamics.', adds: ['Charm', 'Social'] },
+                  ] as const).map(({ key, label, desc, adds }) => (
+                    <label
+                      key={key}
+                      className={`group relative border rounded-md p-3 cursor-pointer transition-colors ${
+                        tags.includes(key)
+                          ? 'border-purple-600 bg-purple-900/10'
+                          : 'border-gray-700 bg-gray-800/40 hover:bg-gray-800'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          className="form-checkbox h-4 w-4 text-purple-600 mt-1"
+                          checked={tags.includes(key)}
+                          onChange={(e) => {
+                            setTagsTouched(true);
+                            setTags((prev) =>
+                              e.target.checked ? [...prev, key] : prev.filter((t) => t !== key)
+                            );
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <div>
+                          <div className="text-sm font-semibold text-gray-200">{label}</div>
+                          <div className="text-xs text-gray-400">{desc}</div>
+                          <div className="mt-1 text-xs text-gray-300">Adds: <span className="text-gray-200">{adds.join(', ')}</span></div>
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+
+                {/* Live stats preview based on selected tags */}
+                <div className="mt-4">
+                  <div className="text-sm font-semibold text-gray-300 mb-1">Stats Preview</div>
+                  <div className="flex flex-wrap gap-2">
+                    {buildCharacterSchema(tags).map((f) => (
+                      <span key={f.key} className="text-xs px-2 py-1 rounded border border-gray-700 bg-gray-800/60 text-gray-200">
+                        {f.label}
+                      </span>
+                    ))}
+                    {buildCharacterSchema(tags).length === 0 && (
+                      <span className="text-xs text-gray-500">No stats selected</span>
+                    )}
+                  </div>
+                  <div className="mt-1 text-xs text-gray-500">No default stats. Select tags to add stats.</div>
                 </div>
               </div>
 

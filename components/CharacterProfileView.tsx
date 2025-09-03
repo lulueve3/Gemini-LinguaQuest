@@ -78,6 +78,18 @@ const CharacterProfileView: React.FC<Props> = ({
     return Array.from(dedup.values());
   }, [tags, hiddenKeys, extraFields]);
 
+  // Relationship add selector
+  const availableRelTargets = useMemo(() => {
+    const known = new Set((relationships || []).map(r => r.with.toLowerCase()));
+    return (characters || []).filter(c => !known.has(c.name.toLowerCase())).map(c => c.name);
+  }, [characters, relationships]);
+  const [selectedRelName, setSelectedRelName] = useState<string>("");
+  useEffect(() => {
+    if (!selectedRelName && availableRelTargets.length > 0) {
+      setSelectedRelName(availableRelTargets[0]);
+    }
+  }, [availableRelTargets, selectedRelName]);
+
   const setTempMessage = (msg: string) => {
     setMessage(msg);
     setTimeout(() => setMessage(null), 4000);
@@ -474,19 +486,30 @@ const CharacterProfileView: React.FC<Props> = ({
         <div className="mb-8">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-xl font-semibold">Relationships</h3>
-            <button
-              onClick={() => {
-                if (!characters || characters.length === 0) return;
-                const known = new Set(relationships.map(r => r.with.toLowerCase()));
-                const candidate = characters.find(c => !known.has(c.name.toLowerCase()));
-                if (!candidate) return;
-                const next: RelationshipEdge = { with: candidate.name, type: 'friend', affection: 0, trust: 0, loyalty: 0, jealousy: 0, lastUpdated: new Date().toISOString() };
-                onUpdateRelationships([...relationships, next]);
-              }}
-              className="bg-gray-700 hover:bg-gray-600 text-white py-1.5 px-3 rounded"
-            >
-              Add Relationship
-            </button>
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedRelName}
+                onChange={(e) => setSelectedRelName(e.target.value)}
+                className="bg-gray-800 border border-gray-700 rounded text-sm px-2 py-1 text-gray-200"
+              >
+                {availableRelTargets.length === 0 ? (
+                  <option value="" disabled>(No available characters)</option>
+                ) : (
+                  availableRelTargets.map(name => <option key={name} value={name}>{name}</option>)
+                )}
+              </select>
+              <button
+                onClick={() => {
+                  if (!selectedRelName) return;
+                  const next: RelationshipEdge = { with: selectedRelName, coreValue: 0, traits: [], history: [], lastUpdated: new Date().toISOString() };
+                  onUpdateRelationships([...(relationships || []), next]);
+                }}
+                disabled={!selectedRelName}
+                className="bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 text-white py-1.5 px-3 rounded"
+              >
+                Add
+              </button>
+            </div>
           </div>
           {relationships.length === 0 ? (
             <p className="text-gray-500 text-sm">No relationships tracked yet.</p>
@@ -558,7 +581,7 @@ const CharacterProfileView: React.FC<Props> = ({
               </p>
               <p>
                 Use Apply to save changes. Use Apply & Change action to generate
-                4 new options based on the current context and your equipped
+                6 new options based on the current context and your equipped
                 items/skills. Max {limits.maxApplyChangePerStep} uses per step.
               </p>
               <p>
@@ -613,45 +636,116 @@ const RelationshipItem: React.FC<{
   onChange: (rel: RelationshipEdge) => void;
   onDelete: () => void;
 }> = ({ rel, onChange, onDelete }) => {
-  const types: RelationshipType[] = ['friend','rival','romance','family','teammate','mentor','enemy','haremCandidate'];
-  const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+  const clampCore = (n: number) => Math.max(-100, Math.min(100, Math.round(n)));
   return (
     <div className="border border-gray-700 rounded p-3 bg-gray-800/40">
       <div className="flex items-center justify-between mb-2">
         <div className="font-semibold text-purple-300 truncate">{rel.with}</div>
-        <div className="flex items-center gap-2">
-          <select
-            value={rel.type}
-            onChange={(e) => onChange({ ...rel, type: e.target.value as RelationshipType })}
-            className="bg-gray-800 border border-gray-700 rounded text-sm px-2 py-1"
-          >
-            {types.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-          <button onClick={onDelete} className="text-xs bg-red-700 hover:bg-red-600 text-white rounded px-2 py-1">Delete</button>
-        </div>
+        <button onClick={onDelete} className="text-xs bg-red-700 hover:bg-red-600 text-white rounded px-2 py-1">Delete</button>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {[
-          { k: 'affection', label: 'Affection' },
-          { k: 'trust', label: 'Trust' },
-          { k: 'loyalty', label: 'Loyalty' },
-          { k: 'jealousy', label: 'Jealousy' },
-        ].map(({ k, label }) => (
-          <div key={k} className="text-sm">
-            <div className="flex justify-between text-gray-300 mb-1">
-              <span>{label}</span>
-              <span className="text-gray-400">{typeof (rel as any)[k] === 'number' ? (rel as any)[k] : 0}</span>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={typeof (rel as any)[k] === 'number' ? (rel as any)[k] : 0}
-              onChange={(e) => onChange({ ...rel, [k]: clamp(Number(e.target.value)) } as RelationshipEdge)}
-              className="w-full"
-            />
+        <div className="text-sm">
+          <div className="flex justify-between text-gray-300 mb-1">
+            <span>Core Relationship Value</span>
+            <span className="text-gray-400">{typeof rel.coreValue === 'number' ? rel.coreValue : 0}</span>
           </div>
-        ))}
+          <input
+            type="range"
+            min={-100}
+            max={100}
+            value={typeof rel.coreValue === 'number' ? rel.coreValue : 0}
+            onChange={(e) => onChange({ ...rel, coreValue: clampCore(Number(e.target.value)) })}
+            className="w-full"
+          />
+        </div>
+        <div className="text-sm">
+          <div className="text-gray-300 mb-1">Traits</div>
+          <div className="flex flex-wrap gap-2 mb-2">
+            {(rel.traits || []).map((t, i) => (
+              <span key={`${t}-${i}`} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-gray-700 bg-gray-900/50 text-gray-200">
+                {t}
+                <button className="text-red-400" onClick={() => onChange({ ...rel, traits: (rel.traits || []).filter((_, idx) => idx !== i) })}>×</button>
+              </span>
+            ))}
+            {(rel.traits || []).length === 0 && (
+              <span className="text-xs text-gray-500">No traits</span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Add trait (e.g., Trusted)"
+              className="flex-grow bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200"
+              onKeyDown={(e) => {
+                const target = e.target as HTMLInputElement;
+                if (e.key === 'Enter') {
+                  const v = target.value.trim();
+                  if (v) {
+                    onChange({ ...rel, traits: [...(rel.traits || []), v] });
+                    target.value = '';
+                  }
+                }
+              }}
+            />
+            <button
+              className="text-xs bg-gray-700 hover:bg-gray-600 text-white rounded px-2 py-1"
+              onClick={(e) => {
+                const input = (e.currentTarget.previousSibling as HTMLInputElement);
+                if (input && 'value' in input) {
+                  const v = (input as HTMLInputElement).value.trim();
+                  if (v) {
+                    onChange({ ...rel, traits: [...(rel.traits || []), v] });
+                    (input as HTMLInputElement).value = '';
+                  }
+                }
+              }}
+            >Add</button>
+          </div>
+        </div>
+      </div>
+      <div className="mt-3">
+        <div className="text-sm text-gray-300 mb-1">Recent History</div>
+        <div className="flex flex-wrap gap-2 mb-2">
+          {(rel.history || []).map((h, i) => (
+            <span key={`h-${i}`} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-gray-700 bg-gray-900/50 text-gray-200">
+              {h}
+              <button className="text-red-400" onClick={() => onChange({ ...rel, history: (rel.history || []).filter((_, idx) => idx !== i) })}>×</button>
+            </span>
+          ))}
+          {(rel.history || []).length === 0 && (
+            <span className="text-xs text-gray-500">No history</span>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            placeholder="Add event (short)"
+            className="flex-grow bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200"
+            onKeyDown={(e) => {
+              const target = e.target as HTMLInputElement;
+              if (e.key === 'Enter') {
+                const v = target.value.trim();
+                if (v) {
+                  onChange({ ...rel, history: [...(rel.history || []), v] });
+                  target.value = '';
+                }
+              }
+            }}
+          />
+          <button
+            className="text-xs bg-gray-700 hover:bg-gray-600 text-white rounded px-2 py-1"
+            onClick={(e) => {
+              const input = (e.currentTarget.previousSibling as HTMLInputElement);
+              if (input && 'value' in input) {
+                const v = (input as HTMLInputElement).value.trim();
+                if (v) {
+                  onChange({ ...rel, history: [...(rel.history || []), v] });
+                  (input as HTMLInputElement).value = '';
+                }
+              }
+            }}
+          >Add</button>
+        </div>
       </div>
       <div className="mt-3">
         <textarea
