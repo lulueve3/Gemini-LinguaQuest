@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { UserSettings, GameTag } from "../types";
+import { buildCharacterSchema } from "../services/worldSchema";
 import {
   generatePromptSuggestion,
   generateInspirationIdeas,
@@ -277,31 +278,95 @@ ${result.prompt}`;
           {/* World Tags */}
           <div className="mb-6 p-4 bg-gray-800/30 border border-gray-700/50 rounded-lg text-left">
             <h3 className="text-lg font-semibold text-purple-300 mb-2">World Tags (optional)</h3>
-            <p className="text-sm text-gray-400 mb-3">Select tags to customize status and relationship systems.</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {[
-                { key: GameTag.Romance, label: 'Romance' },
-                { key: GameTag.Harem, label: 'Harem' },
-                { key: GameTag.Combat, label: 'Combat' },
-                { key: GameTag.Magic, label: 'Magic' },
-                { key: GameTag.SchoolLife, label: 'School Life' },
-                { key: GameTag.SciFi, label: 'Sci-Fi' },
-              ].map(({ key, label }) => (
-                <label key={key} className="inline-flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="form-checkbox h-4 w-4 text-purple-600"
-                    checked={tags.includes(key)}
-                    onChange={(e) => {
-                      setTagsTouched(true);
-                      setTags((prev) =>
-                        e.target.checked ? [...prev, key] : prev.filter((t) => t !== key)
-                      );
-                    }}
-                  />
-                  <span className="text-gray-300 text-sm">{label}</span>
+            <p className="text-sm text-gray-400 mb-3">Select tags to customize status and systems. Hover cards to learn what stats each tag adds.</p>
+
+            {/* Tag cards with descriptions */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+              {([
+                {
+                  key: GameTag.Romance,
+                  label: 'Romance',
+                  desc: 'Focus on relationships and social interactions.',
+                  adds: ['Reputation', 'Charm'],
+                },
+                {
+                  key: GameTag.Harem,
+                  label: 'Harem',
+                  desc: 'Multiple romance routes and social dynamics.',
+                  adds: ['Reputation', 'Charm'],
+                },
+                {
+                  key: GameTag.Combat,
+                  label: 'Combat',
+                  desc: 'Battle-heavy world; emphasizes core survival stats.',
+                  adds: ['(no extra bars beyond core)'],
+                },
+                {
+                  key: GameTag.Magic,
+                  label: 'Magic',
+                  desc: 'Uses spells, rituals, and mystical forces.',
+                  adds: ['Mana', 'Corruption'],
+                },
+                {
+                  key: GameTag.SchoolLife,
+                  label: 'School Life',
+                  desc: 'Campus life, clubs, and reputation building.',
+                  adds: ['Reputation', 'Charm'],
+                },
+                {
+                  key: GameTag.SciFi,
+                  label: 'Sci-Fi',
+                  desc: 'Hi-tech gear, space travel, and energy systems.',
+                  adds: ['Shield', 'Energy'],
+                },
+              ] as const).map(({ key, label, desc, adds }) => (
+                <label
+                  key={key}
+                  className={`group relative border rounded-md p-3 cursor-pointer transition-colors ${
+                    tags.includes(key)
+                      ? 'border-purple-600 bg-purple-900/10'
+                      : 'border-gray-700 bg-gray-800/40 hover:bg-gray-800'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      className="form-checkbox h-4 w-4 text-purple-600 mt-1"
+                      checked={tags.includes(key)}
+                      onChange={(e) => {
+                        setTagsTouched(true);
+                        setTags((prev) =>
+                          e.target.checked ? [...prev, key] : prev.filter((t) => t !== key)
+                        );
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    <div>
+                      <div className="text-sm font-semibold text-gray-200">{label}</div>
+                      <div className="text-xs text-gray-400">{desc}</div>
+                      <div className="mt-1 text-xs text-gray-300">
+                        Adds: <span className="text-gray-200">{adds.join(', ')}</span>
+                      </div>
+                    </div>
+                  </div>
                 </label>
               ))}
+            </div>
+
+            {/* Live stats preview based on selected tags */}
+            <div className="mt-4">
+              <div className="text-sm font-semibold text-gray-300 mb-1">Stats Preview</div>
+              <div className="flex flex-wrap gap-2">
+                {buildCharacterSchema(tags).map((f) => (
+                  <span key={f.key} className="text-xs px-2 py-1 rounded border border-gray-700 bg-gray-800/60 text-gray-200">
+                    {f.label}
+                  </span>
+                ))}
+                {buildCharacterSchema(tags).length === 0 && (
+                  <span className="text-xs text-gray-500">No stats selected</span>
+                )}
+              </div>
+              <div className="mt-1 text-xs text-gray-500">Core bars always shown: Health, Stamina, Morale.</div>
             </div>
           </div>
 
@@ -489,12 +554,15 @@ ${result.prompt}`;
                     onChange={(e) => setImageModel(e.target.value)}
                     className="w-full bg-gray-800 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-purple-500"
                   >
-                    <option value="gemini-2.5-flash-image-preview">
-                      gemini-2.5-flash-image-preview
-                    </option>
+                    {/* Google (Gemini/Imagen) */}
+                    <option value="gemini-2.5-flash-image-preview">gemini-2.5-flash-image-preview</option>
                     <option value="imagen-3.0-generate-002">imagen-3.0-generate-002</option>
                     <option value="imagen-4.0-generate-001">imagen-4.0-generate-001</option>
+                    {/* ImageFX */}
+                    <option value="imagefx-api">imagefx-api</option>
+                    {/* DeepAI */}
                     <option value="deepai-text2img">deepai-text2img</option>
+                    {/* KlingAI */}
                     <option value="kling-v2-1">kling-v2-1</option>
                   </select>
                 </div>

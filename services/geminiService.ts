@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import deepAiService from "./deepAiService";
 import klingAiService from "./klingAiService";
+import imageFxService from "./imageFxService";
 import {
   AdventureStep,
   UserSettings,
@@ -711,6 +712,17 @@ export const generateAdventureImage = async (
     // Branch 0.5: KlingAI text2img (kling-v2-1)
     if (imageModel === "kling-v2-1" || imageModel?.toLowerCase().startsWith("kling")) {
       const blob = await klingAiService.generateImageWithKling(prompt);
+      return blob;
+    }
+
+    // Branch 0.7: ImageFX text2img via unofficial API (imagefx-api)
+    if (imageModel === "imagefx-api" || imageModel?.toLowerCase().startsWith("imagefx")) {
+      const blob = await imageFxService.generateImageWithImageFx(prompt, {
+        // Defaults; could be made configurable later
+        model: "IMAGEN_4",
+        aspectRatio: "IMAGE_ASPECT_RATIO_LANDSCAPE",
+        count: 1,
+      });
       return blob;
     }
 
