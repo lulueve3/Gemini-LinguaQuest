@@ -22,6 +22,8 @@ export interface UserSettings {
     animeStyle?: string;
     generateImages: boolean;
     imageModel?: string; // Model used for image generation
+    // Optional: world/gameplay tags to customize rules/attributes
+    tags?: GameTag[];
 }
 
 export interface VocabularyItem {
@@ -96,6 +98,8 @@ export interface SaveData {
     equipment: EquipmentItem[];
     skills: SkillItem[];
     worldMeta?: WorldMeta; // Optional long-term world context
+    // Optional relationships between player and known characters
+    relationships?: RelationshipEdge[];
 }
 
 export interface CharacterStatus {
@@ -104,6 +108,8 @@ export interface CharacterStatus {
     morale?: number; // 0-100
     conditions?: string[]; // e.g., "poisoned", "fatigued"
     notes?: string; // free-form context notes
+    // Extension: world-specific stats (e.g., mana, reputation)
+    custom?: Record<string, number | string>;
 }
 
 export interface PromptSuggestion {
@@ -141,4 +147,44 @@ export interface WorldMeta {
     rulesAndSystems?: string[];
     charactersAndRoles?: string[];
     plotAndConflict?: string[];
+}
+
+// World tags to compose systems and UIs
+export enum GameTag {
+    Romance = 'romance',
+    Harem = 'harem',
+    Combat = 'combat',
+    Magic = 'magic',
+    SchoolLife = 'school',
+    SciFi = 'scifi',
+}
+
+// Relationship system for romance/harem and social-heavy worlds
+export type RelationshipType =
+  | 'friend'
+  | 'rival'
+  | 'romance'
+  | 'family'
+  | 'teammate'
+  | 'mentor'
+  | 'enemy'
+  | 'haremCandidate';
+
+export interface RelationshipEdge {
+    with: string; // Character name (assume player <-> NPC)
+    type: RelationshipType;
+    affection?: number;   // 0-100
+    trust?: number;       // 0-100
+    jealousy?: number;    // 0-100 (useful for harem dynamics)
+    loyalty?: number;     // 0-100
+    notes?: string;
+    lastUpdated?: string; // ISO string
+}
+
+// Schema description for dynamic character attributes
+export type AttributeFieldKind = 'bar' | 'text';
+export interface CharacterAttributeField {
+    key: string;      // e.g., 'mana', 'reputation'
+    label: string;    // e.g., 'Mana', 'Reputation'
+    kind: AttributeFieldKind;
 }

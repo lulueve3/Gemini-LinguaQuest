@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { LoadingState, GameState, AppScreen, UserSettings, VocabularyItem, SavedVocabularyItem, SaveData, ChoiceItem, CharacterProfile, ImageRecord, EquipmentItem, SkillItem, WorldMeta } from './types';
+import { LoadingState, GameState, AppScreen, UserSettings, VocabularyItem, SavedVocabularyItem, SaveData, ChoiceItem, CharacterProfile, ImageRecord, EquipmentItem, SkillItem, WorldMeta, GameTag, RelationshipEdge } from './types';
 import { generateAdventureStep, generateAdventureImage, translateWord } from './services/geminiService';
 import { db, clearAllData, HistoryStep, SessionData } from './services/dbService';
 import { speak, stop } from './services/ttsService';
@@ -137,6 +137,7 @@ const App: React.FC = () => {
     const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
     const [history, setHistory] = useState<GameState[]>([]);
     const [characterProfiles, setCharacterProfiles] = useState<CharacterProfile[]>([]);
+    const [relationships, setRelationships] = useState<RelationshipEdge[]>([]);
     const [equipment, setEquipment] = useState<EquipmentItem[]>([]);
     const [skills, setSkills] = useState<SkillItem[]>([]);
     const [worldMeta, setWorldMeta] = useState<WorldMeta>({ longTermSummary: '', keyEvents: [], keyCharacters: [], rulesAndSystems: [], charactersAndRoles: [], plotAndConflict: [] });
@@ -266,7 +267,7 @@ const App: React.FC = () => {
     const updateSaveDataInfo = useCallback(async () => {
         if (history.length > 0) {
             try {
-                const jsonBytes = JSON.stringify({ userSettings, history, currentStepIndex, characterProfiles, equipment, skills, worldMeta }).length;
+                const jsonBytes = JSON.stringify({ userSettings, history, currentStepIndex, characterProfiles, equipment, skills, worldMeta, relationships }).length;
                 const images = await db.images.toArray();
                 const imageBytes = images.reduce((sum, record) => sum + record.blob.size, 0);
                 const totalBytes = jsonBytes + imageBytes;
@@ -367,7 +368,7 @@ const App: React.FC = () => {
                 await db.images.clear();
             });
 
-            const initialStep = await generateAdventureStep(`New Game: ${settings.prompt}`, settings, [], worldMeta);
+            const initialStep = await generateAdventureStep(`New Game: ${settings.prompt}`, settings, [], worldMeta, relationships);
 
             let imageUrl = '';
             let imageId: string | undefined = undefined;
@@ -474,7 +475,7 @@ const App: React.FC = () => {
 
             const fullPrompt = `${context}The player chose: "${choice}". Continue the story. Update summary, equipment, and skills as needed.`;
 
-            const nextStep = await generateAdventureStep(fullPrompt, userSettings!, characterProfiles, worldMeta);
+            const nextStep = await generateAdventureStep(fullPrompt, userSettings!, characterProfiles, worldMeta, relationships);
 
             let imageUrl = '';
             let imageId: string | undefined = undefined;
@@ -550,7 +551,7 @@ const App: React.FC = () => {
 
         try {
             setLoadingState(LoadingState.GENERATING_STORY);
-            const step = await generateAdventureStep(prompt, userSettings, characterProfiles, worldMeta);
+            const step = await generateAdventureStep(prompt, userSettings, characterProfiles, worldMeta, relationships);
             const newChoices = step.choices;
 
             const updatedHistory = [...history];
@@ -585,7 +586,7 @@ const App: React.FC = () => {
                 }));
                 await db.history.bulkAdd(historyToSave);
 
-            const sessionData: SessionData = { id: SESSION_ID, userSettings, currentStepIndex, characterProfiles, equipment, skills, worldMeta };
+            const sessionData: SessionData = { id: SESSION_ID, userSettings, currentStepIndex, characterProfiles, equipment, skills, worldMeta, relationships };
                 await db.session.put(sessionData);
             });
             setHasSaveData(true);
@@ -623,6 +624,7 @@ const App: React.FC = () => {
             setHistory(recoveredHistory);
             setCurrentStepIndex(session.currentStepIndex);
             setCharacterProfiles(session.characterProfiles);
+            setRelationships(session.relationships ?? []);
             setEquipment((session.equipment || []).map(e => ({ ...e, quantity: e.quantity ?? 1 })));
             setSkills(normalizeSkills(session.skills || []));
             setWorldMeta(session.worldMeta ? ({
@@ -676,6 +678,7 @@ const App: React.FC = () => {
                 ...data.worldMeta,
                 keyCharacters: (data.worldMeta as any).keyCharacters ?? (data.worldMeta as any).futureCharacters ?? [],
             } as WorldMeta) : { longTermSummary: '', keyEvents: [], keyCharacters: [], rulesAndSystems: [], charactersAndRoles: [], plotAndConflict: [] });
+            setRelationships(data.relationships ?? []);
             setAppScreen(AppScreen.GAME);
             
             await autoSaveGame(); 
@@ -703,7 +706,7 @@ const App: React.FC = () => {
                 })
             );
 
-            const saveData: SaveData = { userSettings, history: historyWithImages, currentStepIndex, characterProfiles, equipment, skills, worldMeta };
+            const saveData: SaveData = { userSettings, history: historyWithImages, currentStepIndex, characterProfiles, equipment, skills, worldMeta, relationships };
             const jsonString = JSON.stringify(saveData);
             const blob = new Blob([jsonString], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
@@ -862,6 +865,10 @@ const App: React.FC = () => {
                         applyChangeRemaining={(history[currentStepIndex]?.applyChangeActionsUsed ?? 0) >= MAX_APPLY_CHANGE_PER_STEP ? 0 : (MAX_APPLY_CHANGE_PER_STEP - (history[currentStepIndex]?.applyChangeActionsUsed ?? 0))}
                         worldMeta={worldMeta}
                         progressSummary={history.length > 0 ? history.map(h => h.summary).join(' ').replace(/The Player is/gi, 'You are') : ''}
+                        tags={userSettings?.tags}
+                        characters={characterProfiles}
+                        relationships={relationships}
+                        onUpdateRelationships={(rels) => setRelationships(rels)}
                         onApply={(equip, skillList) => {
                             if (equip.length > MAX_INVENTORY) {
                                 addToast(`Inventory exceeds ${MAX_INVENTORY} items.`, 'error');

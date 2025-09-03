@@ -3,7 +3,7 @@
 // The default import was not resolving to the class constructor correctly, causing errors
 // where 'version' and 'transaction' methods were not found.
 import { Dexie, type Table } from 'dexie';
-import { UserSettings, CharacterProfile, ChoiceItem, VocabularyItem, SavedVocabularyItem, EquipmentItem, SkillItem, WorldMeta } from '../types';
+import { UserSettings, CharacterProfile, ChoiceItem, VocabularyItem, SavedVocabularyItem, EquipmentItem, SkillItem, WorldMeta, RelationshipEdge } from '../types';
 
 export interface HistoryStep {
     id?: number; // Auto-incrementing primary key
@@ -29,6 +29,7 @@ export interface SessionData {
     equipment: EquipmentItem[];
     skills: SkillItem[];
     worldMeta?: WorldMeta; // Long-term world context (optional)
+    relationships?: RelationshipEdge[]; // Player <-> NPC relations (optional)
 }
 
 class LinguaQuestDB extends Dexie {

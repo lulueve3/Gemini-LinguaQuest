@@ -6,6 +6,8 @@ import {
   UserSettings,
   PromptSuggestion,
   CharacterProfile,
+  RelationshipEdge,
+  GameTag,
 } from "../types";
 import apiKeyService from "./apiKeyService";
 
@@ -462,7 +464,8 @@ export const generateAdventureStep = async (
   prompt: string,
   settings: Omit<UserSettings, "prompt">,
   knownCharacters: CharacterProfile[],
-  worldMeta?: import("../types").WorldMeta
+  worldMeta?: import("../types").WorldMeta,
+  relationships?: RelationshipEdge[]
 ): Promise<AdventureStep> => {
   try {
     const styleInstruction = settings.animeStyle
@@ -516,7 +519,27 @@ export const generateAdventureStep = async (
         }`
       : "";
 
-    const fullPrompt = `${prompt}${characterContext}${worldMetaContext}\n\nGame settings:\nSource Language: ${settings.sourceLanguage}\nTarget Language: ${settings.targetLanguage}\nGenre: ${settings.genre}${styleInstruction}`;
+    const relationshipContext = (relationships && relationships.length)
+      ? (() => {
+          const lines = relationships.map(r => {
+            const parts: string[] = [];
+            parts.push(`with: ${r.with}`);
+            parts.push(`type: ${r.type}`);
+            if (typeof r.affection === 'number') parts.push(`affection: ${r.affection}`);
+            if (typeof r.trust === 'number') parts.push(`trust: ${r.trust}`);
+            if (typeof r.loyalty === 'number') parts.push(`loyalty: ${r.loyalty}`);
+            if (typeof r.jealousy === 'number') parts.push(`jealousy: ${r.jealousy}`);
+            if (r.notes) parts.push(`notes: ${r.notes}`);
+            return `- ${parts.join('; ')}`;
+          }).join("\n");
+          const guidance = (settings.tags?.includes(GameTag.Romance) || settings.tags?.includes(GameTag.Harem))
+            ? "For romance/harem dynamics, keep affection/trust consistent, avoid sudden shifts without narrative cause, and reflect jealousy/loyalty tensions in dialogue and choices."
+            : "Maintain continuity of relationships, adjusting gradually based on events. Do not contradict existing relationship facts.";
+          return `\n\n--- Relationship Context (Maintain and Update Consistently) ---\nGuidance: ${guidance}\nRelationships:\n${lines}`;
+        })()
+      : "";
+
+    const fullPrompt = `${prompt}${characterContext}${worldMetaContext}${relationshipContext}\n\nGame settings:\nSource Language: ${settings.sourceLanguage}\nTarget Language: ${settings.targetLanguage}\nGenre: ${settings.genre}${styleInstruction}`;
 
     const reqCfg = {
       systemInstruction: systemInstruction,

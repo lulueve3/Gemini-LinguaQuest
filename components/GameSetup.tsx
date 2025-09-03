@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { UserSettings } from "../types";
+import { UserSettings, GameTag } from "../types";
 import {
   generatePromptSuggestion,
   generateInspirationIdeas,
@@ -41,6 +41,27 @@ const GameSetup: React.FC<GameSetupProps> = ({
 
   const [inspirationIdeas, setInspirationIdeas] = useState<string[]>([]);
   const [isLoadingInspirations, setIsLoadingInspirations] = useState(false);
+  const [tags, setTags] = useState<GameTag[]>([]);
+  const [tagsTouched, setTagsTouched] = useState(false);
+
+  const inferTags = useCallback((g: string, p: string): GameTag[] => {
+    const txt = `${g} ${p}`.toLowerCase();
+    const out = new Set<GameTag>();
+    const addIf = (cond: boolean, tag: GameTag) => { if (cond) out.add(tag); };
+    addIf(/\bromance\b|\blove\b|dating/.test(txt), GameTag.Romance);
+    addIf(/\bharem\b/.test(txt), GameTag.Harem);
+    addIf(/magic|mage|wizard|spell|mana|arcane/.test(txt), GameTag.Magic);
+    addIf(/sci[- ]?fi|mech|space|galaxy|cyberpunk|robot|android|\bai\b/.test(txt), GameTag.SciFi);
+    addIf(/school|academy|high\s*school|campus/.test(txt), GameTag.SchoolLife);
+    addIf(/combat|battle|fight|war|arena|slayer|hunter/.test(txt), GameTag.Combat);
+    return Array.from(out);
+  }, []);
+
+  useEffect(() => {
+    if (tagsTouched) return; // respect manual edits
+    const suggested = inferTags(genre, prompt);
+    setTags(suggested);
+  }, [genre, prompt, tagsTouched, inferTags]);
 
   const fetchInspirations = useCallback(async () => {
     setIsLoadingInspirations(true);
@@ -148,6 +169,7 @@ ${result.prompt}`;
       animeStyle: animeName.trim() || undefined,
       generateImages,
       imageModel: generateImages ? imageModel : undefined,
+      tags: tags.length ? tags : undefined,
     });
   };
 
@@ -250,6 +272,37 @@ ${result.prompt}`;
                 </span>
               </li>
             </ul>
+          </div>
+
+          {/* World Tags */}
+          <div className="mb-6 p-4 bg-gray-800/30 border border-gray-700/50 rounded-lg text-left">
+            <h3 className="text-lg font-semibold text-purple-300 mb-2">World Tags (optional)</h3>
+            <p className="text-sm text-gray-400 mb-3">Select tags to customize status and relationship systems.</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {[
+                { key: GameTag.Romance, label: 'Romance' },
+                { key: GameTag.Harem, label: 'Harem' },
+                { key: GameTag.Combat, label: 'Combat' },
+                { key: GameTag.Magic, label: 'Magic' },
+                { key: GameTag.SchoolLife, label: 'School Life' },
+                { key: GameTag.SciFi, label: 'Sci-Fi' },
+              ].map(({ key, label }) => (
+                <label key={key} className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="form-checkbox h-4 w-4 text-purple-600"
+                    checked={tags.includes(key)}
+                    onChange={(e) => {
+                      setTagsTouched(true);
+                      setTags((prev) =>
+                        e.target.checked ? [...prev, key] : prev.filter((t) => t !== key)
+                      );
+                    }}
+                  />
+                  <span className="text-gray-300 text-sm">{label}</span>
+                </label>
+              ))}
+            </div>
           </div>
 
           <form
