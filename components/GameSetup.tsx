@@ -34,7 +34,7 @@ const GameSetup: React.FC<GameSetupProps> = ({
   const [targetLanguage, setTargetLanguage] = useState("Vietnamese");
   const [animeName, setAnimeName] = useState("");
   const [isSuggesting, setIsSuggesting] = useState(false);
-  const [generateImages, setGenerateImages] = useState(true);
+  const [generateImages, setGenerateImages] = useState(false);
   const [imageModel, setImageModel] = useState(
     "gemini-2.5-flash-image-preview"
   );
@@ -441,6 +441,8 @@ ${result.prompt}`;
                     </option>
                     <option value="imagen-3.0-generate-002">imagen-3.0-generate-002</option>
                     <option value="imagen-4.0-generate-001">imagen-4.0-generate-001</option>
+                    <option value="deepai-text2img">deepai-text2img</option>
+                    <option value="kling-v2-1">kling-v2-1</option>
                   </select>
                 </div>
               )}
