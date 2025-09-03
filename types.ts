@@ -151,6 +151,9 @@ export interface WorldMeta {
 
 // World tags to compose systems and UIs
 export enum GameTag {
+    Fantasy = 'fantasy',
+    Apocalypse = 'apocalypse',
+    Adventure = 'adventure',
     Romance = 'romance',
     Harem = 'harem',
     Combat = 'combat',

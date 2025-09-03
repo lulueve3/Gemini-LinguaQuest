@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { EquipmentItem, SkillItem, CharacterStatus, WorldMeta, GameTag, RelationshipEdge, RelationshipType, CharacterProfile } from "../types";
+import { EquipmentItem, SkillItem, CharacterStatus, WorldMeta, GameTag, RelationshipEdge, RelationshipType, CharacterProfile, CharacterAttributeField } from "../types";
 import { buildCharacterSchema } from "../services/worldSchema";
 
 interface Limits {
@@ -67,6 +67,16 @@ const CharacterProfileView: React.FC<Props> = ({
   );
 
   const attributeSchema = useMemo(() => buildCharacterSchema(tags), [tags]);
+  const [extraFields, setExtraFields] = useState<CharacterAttributeField[]>([]);
+  const [hiddenKeys, setHiddenKeys] = useState<string[]>([]);
+  const [newFieldLabel, setNewFieldLabel] = useState<string>("");
+  const effectiveSchema = useMemo(() => {
+    const base = buildCharacterSchema(tags).filter(f => !hiddenKeys.includes(f.key));
+    const dedup = new Map<string, CharacterAttributeField>();
+    for (const f of base) dedup.set(f.key, f);
+    for (const f of extraFields) dedup.set(f.key, f);
+    return Array.from(dedup.values());
+  }, [tags, hiddenKeys, extraFields]);
 
   const setTempMessage = (msg: string) => {
     setMessage(msg);
@@ -320,7 +330,7 @@ const CharacterProfileView: React.FC<Props> = ({
         <h3 className="text-xl font-semibold mb-2">Status</h3>
         {status ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {attributeSchema.map((field) => {
+            {effectiveSchema.map((field) => {
               const key = field.key.toLowerCase();
               const baseMap: Record<string, number | string | undefined> = {
                 health: status.health,
@@ -354,6 +364,52 @@ const CharacterProfileView: React.FC<Props> = ({
         ) : (
           <p className="text-gray-400 text-sm">No status available for this step.</p>
         )}
+        {/* Manage Stats Schema */}
+        <div className="mt-3 bg-gray-800/40 border border-gray-700 rounded p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-semibold text-gray-200">Manage Stats</div>
+          </div>
+          <div className="text-xs text-gray-400 mb-2">Add or remove displayed stats. Values come from the story steps; this only controls visibility.</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+            {effectiveSchema.map(f => (
+              <div key={`m-${f.key}`} className="flex items-center justify-between bg-gray-900/40 border border-gray-700 rounded px-2 py-1">
+                <span className="text-sm text-gray-200">{f.label}</span>
+                <button
+                  className="text-xs bg-red-700 hover:bg-red-600 text-white rounded px-2 py-0.5"
+                  onClick={() => setHiddenKeys(prev => prev.includes(f.key) ? prev : [...prev, f.key])}
+                >Remove</button>
+              </div>
+            ))}
+            {effectiveSchema.length === 0 && (
+              <div className="text-xs text-gray-500">No stats selected. Use tags or add custom.</div>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newFieldLabel}
+              onChange={(e) => setNewFieldLabel(e.target.value)}
+              placeholder="Add custom stat (e.g., Mana)"
+              className="flex-grow bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
+            />
+            <button
+              className="text-sm bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-1"
+              onClick={() => {
+                const lbl = newFieldLabel.trim();
+                if (!lbl) return;
+                const key = lbl.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+                if (!key) return;
+                setHiddenKeys(prev => prev.filter(k => k !== key));
+                setExtraFields(prev => prev.some(f => f.key === key) ? prev : [...prev, { key, label: lbl, kind: 'bar' }]);
+                setNewFieldLabel('');
+              }}
+            >Add</button>
+            <button
+              className="text-sm bg-gray-700 hover:bg-gray-600 text-white rounded px-3 py-1"
+              onClick={() => { setHiddenKeys([]); setExtraFields([]); }}
+            >Reset</button>
+          </div>
+        </div>
       </div>
 
       {/* Inventory (Kho đồ) */}

@@ -283,42 +283,15 @@ ${result.prompt}`;
             {/* Tag cards with descriptions */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
               {([
-                {
-                  key: GameTag.Romance,
-                  label: 'Romance',
-                  desc: 'Focus on relationships and social interactions.',
-                  adds: ['Reputation', 'Charm'],
-                },
-                {
-                  key: GameTag.Harem,
-                  label: 'Harem',
-                  desc: 'Multiple romance routes and social dynamics.',
-                  adds: ['Reputation', 'Charm'],
-                },
-                {
-                  key: GameTag.Combat,
-                  label: 'Combat',
-                  desc: 'Battle-heavy world; emphasizes core survival stats.',
-                  adds: ['(no extra bars beyond core)'],
-                },
-                {
-                  key: GameTag.Magic,
-                  label: 'Magic',
-                  desc: 'Uses spells, rituals, and mystical forces.',
-                  adds: ['Mana', 'Corruption'],
-                },
-                {
-                  key: GameTag.SchoolLife,
-                  label: 'School Life',
-                  desc: 'Campus life, clubs, and reputation building.',
-                  adds: ['Reputation', 'Charm'],
-                },
-                {
-                  key: GameTag.SciFi,
-                  label: 'Sci-Fi',
-                  desc: 'Hi-tech gear, space travel, and energy systems.',
-                  adds: ['Shield', 'Energy'],
-                },
+                { key: GameTag.Fantasy, label: 'Fantasy', desc: 'Swords, sorcery, and heroic quests.', adds: ['Health', 'Stamina', 'Mana', 'Morale'] },
+                { key: GameTag.SciFi, label: 'Sci-Fi', desc: 'Hi-tech gear, space travel, energy systems.', adds: ['Health', 'Stamina', 'Energy', 'Morale'] },
+                { key: GameTag.Romance, label: 'Romance', desc: 'Focus on relationships and social interactions.', adds: ['Charm', 'Heart', 'Social'] },
+                { key: GameTag.SchoolLife, label: 'School Life', desc: 'Campus life, study, social and stress.', adds: ['Social', 'Grades', 'Stamina', 'Stress'] },
+                { key: GameTag.Apocalypse, label: 'Apocalypse', desc: 'Harsh survival under extreme conditions.', adds: ['Health', 'Hunger', 'Thirst'] },
+                { key: GameTag.Combat, label: 'Combat', desc: 'Battle-heavy world and fighting progression.', adds: ['Health', 'Stamina', 'Energy', 'Weapon Proficiency'] },
+                { key: GameTag.Adventure, label: 'Adventure', desc: 'Exploration-focused, classic adventure pacing.', adds: ['Health', 'Stamina'] },
+                { key: GameTag.Magic, label: 'Magic', desc: 'Add magical resource to any world.', adds: ['Mana'] },
+                { key: GameTag.Harem, label: 'Harem', desc: 'Multiple romance routes and dynamics.', adds: ['Charm', 'Social'] },
               ] as const).map(({ key, label, desc, adds }) => (
                 <label
                   key={key}
@@ -366,7 +339,7 @@ ${result.prompt}`;
                   <span className="text-xs text-gray-500">No stats selected</span>
                 )}
               </div>
-              <div className="mt-1 text-xs text-gray-500">Core bars always shown: Health, Stamina, Morale.</div>
+              <div className="mt-1 text-xs text-gray-500">No default stats. Select tags to add stats.</div>
             </div>
           </div>
 
